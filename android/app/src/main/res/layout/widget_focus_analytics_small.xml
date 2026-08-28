@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widget_root"
+  android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center"
+  android:orientation="vertical" android:background="@drawable/widget_background" android:padding="10dp">
+  <TextView android:id="@+id/focus_total" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:gravity="center" android:maxLines="1" android:textColor="#FFFFFFFF" android:textSize="24sp" android:textStyle="bold"/>
+  <ImageView android:id="@+id/focus_pie" android:layout_width="92dp" android:layout_height="92dp"
+    android:layout_marginTop="5dp" android:contentDescription="Focus time pie chart"/>
+</LinearLayout>

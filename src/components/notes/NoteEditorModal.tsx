@@ -1,0 +1,32 @@
+import { Check, ListChecks, Plus, Trash2, X } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AttachmentBar } from '@/components/shared/AttachmentBar';
+import { RichTextEditor } from '@/components/notes/RichTextEditor';
+import { AppModal } from '@/components/ui/AppModal';
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
+import { Button } from '@/components/ui/Button';
+import { useTheme } from '@/contexts/ThemeContext';
+import type { ChecklistItem, Note, NoteAttachment } from '@/types/database';
+
+const array = <T,>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
+export function NoteEditorModal({ note, visible, folderId, onClose, onSave, onUpload }: { note: Note | null; visible: boolean; folderId: string | null; onClose: () => void; onSave: (input: { id?: string; folderId: string | null; title: string; content: string; checklistData: ChecklistItem[]; attachments: NoteAttachment[] }) => Promise<void>; onUpload: (file: { uri: string; mimeType: string; fileName: string; kind: 'image' | 'video' | 'audio' }) => Promise<NoteAttachment> }) {
+  const { colors } = useTheme(); const [title, setTitle] = useState(''); const [content, setContent] = useState(''); const [checks, setChecks] = useState<ChecklistItem[]>([]); const [attachments, setAttachments] = useState<NoteAttachment[]>([]); const [newCheck, setNewCheck] = useState(''); const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null);
+  useEffect(() => { if (!visible) return; setTitle(note?.title ?? ''); setContent(note?.content || note?.content_html || ''); setChecks(array<ChecklistItem>(note?.checklist_data)); setAttachments(array<NoteAttachment>(note?.attachments)); setNewCheck(''); setError(null); }, [visible, note]);
+  const save = async () => { setSaving(true); try { await onSave({ id: note?.id, folderId: note?.folder_id ?? folderId, title: title.trim() || 'New Note', content, checklistData: checks, attachments }); onClose(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save note.'); } finally { setSaving(false); } };
+  return <AppModal visible={visible} onClose={onClose} sheetStyle={styles.sheet}><View style={styles.content}>
+    <View style={styles.top}><AnimatedPressable accessibilityLabel="Close editor" onPress={onClose}><X color={colors.textMuted} /></AnimatedPressable><Text style={[styles.updated, { color: colors.textMuted }]}>{note ? `Edited ${new Date(note.updated_at).toLocaleDateString()}` : 'New note'}</Text><Button label="Done" loading={saving} onPress={() => void save()} style={styles.done} /></View>
+    <TextInput value={title} onChangeText={setTitle} placeholder="Title" placeholderTextColor={colors.textMuted} style={[styles.title, { color: colors.text }]} />
+    <RichTextEditor value={content} onChange={setContent} minHeight={240} style={styles.editor} />
+    <ScrollView keyboardShouldPersistTaps="handled" style={styles.accessories} contentContainerStyle={styles.accessoryContent}>
+      <View style={styles.checkHeader}><ListChecks size={18} color={colors.notesAccent} /><Text style={[styles.checkTitle, { color: colors.text }]}>Checklist</Text></View>
+      {checks.map((item) => <View key={item.id} style={styles.checkRow}><AnimatedPressable onPress={() => setChecks((current) => current.map((value) => value.id === item.id ? { ...value, isCompleted: !value.isCompleted } : value))} style={[styles.checkBox, { borderColor: colors.notesAccent, backgroundColor: item.isCompleted ? colors.notesAccent : 'transparent' }]}>{item.isCompleted && <Check size={12} color="#000" />}</AnimatedPressable><TextInput value={item.text} onChangeText={(text) => setChecks((current) => current.map((value) => value.id === item.id ? { ...value, text } : value))} style={[styles.checkInput, { color: colors.text, opacity: item.isCompleted ? 0.5 : 1, textDecorationLine: item.isCompleted ? 'line-through' : 'none' }]} /><AnimatedPressable onPress={() => setChecks((current) => current.filter((value) => value.id !== item.id))}><Trash2 size={15} color={colors.textMuted} /></AnimatedPressable></View>)}
+      <View style={styles.checkRow}><Plus size={17} color={colors.notesAccent} /><TextInput value={newCheck} onChangeText={setNewCheck} onSubmitEditing={() => { if (!newCheck.trim()) return; setChecks((current) => [...current, { id: `${Date.now()}`, text: newCheck.trim(), isCompleted: false }]); setNewCheck(''); }} placeholder="Add checklist item" placeholderTextColor={colors.textMuted} style={[styles.checkInput, { color: colors.text }]} /></View>
+      <AttachmentBar onAttachment={async (file) => { const attachment = await onUpload(file); setAttachments((current) => [...current, attachment]); }} />
+      {attachments.map((item) => <View key={item.id} style={[styles.attachment, { backgroundColor: colors.cardElevated }]}><Text numberOfLines={1} style={[styles.attachmentText, { color: colors.text }]}>{item.kind === 'image' ? 'Photo' : item.kind === 'video' ? 'Video' : item.kind === 'audio' ? 'Voice memo' : item.name ?? 'Attachment'}</Text><AnimatedPressable onPress={() => setAttachments((current) => current.filter((value) => value.id !== item.id))}><X size={16} color={colors.textMuted} /></AnimatedPressable></View>)}
+      {error && <Text style={{ color: colors.danger }}>{error}</Text>}
+    </ScrollView>
+  </View></AppModal>;
+}
+
+const styles = StyleSheet.create({ sheet: { height: '90%' }, content: { flex: 1, gap: 12 }, top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, updated: { fontSize: 10 }, done: { minHeight: 36, paddingHorizontal: 13 }, title: { fontSize: 28, fontWeight: '700', paddingVertical: 5 }, editor: { flex: 1, flexGrow: 1, flexBasis: 0, minHeight: 240 }, accessories: { maxHeight: 180, flexShrink: 1 }, accessoryContent: { gap: 4, paddingBottom: 8 }, checkHeader: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 4 }, checkTitle: { fontSize: 15, fontWeight: '700' }, checkRow: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 8 }, checkBox: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.2, alignItems: 'center', justifyContent: 'center' }, checkInput: { flex: 1, minHeight: 36, fontSize: 14 }, attachment: { minHeight: 45, borderRadius: 13, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center' }, attachmentText: { flex: 1, fontSize: 12, fontWeight: '600' } });

@@ -1,0 +1,1 @@
+export declare function RichTextEditor(props: { value: string; onChange: (html: string) => void; minHeight?: number; style?: import('react-native').StyleProp<import('react-native').ViewStyle> }): import('react').ReactElement;

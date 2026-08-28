@@ -1,0 +1,96 @@
+{
+  "expo": {
+    "name": "Lifeaholic",
+    "slug": "lifeaholic",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "lifeaholic",
+    "icon": "./assets/images/lifeaholic-icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.lifeaholic",
+      "appleTeamId": "83DT3G3QY6"
+    },
+    "android": {
+      "package": "com.example.lifeaholic",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/lifeaholic-adaptive-icon.png",
+        "backgroundColor": "#09090B"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/lifeaholic-icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#09090B",
+          "image": "./assets/images/lifeaholic-splash.png",
+          "imageWidth": 190,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#09090B",
+            "image": "./assets/images/lifeaholic-splash.png"
+          }
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Lifeaholic to record audio attachments for your notes and journal."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Lifeaholic to attach photos to your notes and journal.",
+          "cameraPermission": "Allow Lifeaholic to take photos for your notes and journal.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Allow Lifeaholic to add scheduled habits to your device calendar."
+        }
+      ],
+      [
+        "react-native-nitro-google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.862899840191-5e7qf2g13abmncs3prkmap7s6hkg111i"
+        }
+      ],
+      "expo-asset",
+      "./plugins/withPersonalTeamWidgetEntitlements",
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "com.example.lifeaholic.widgets",
+          "groupIdentifier": "group.com.example.lifeaholic",
+          "enablePushNotifications": false,
+          "widgets": [
+            {
+              "name": "LifeaholicTasksWidget",
+              "displayName": "Lifeaholic Tasks",
+              "description": "See your Lifeaholic tasks at a glance.",
+              "supportedFamilies": [
+                "systemLarge"
+              ],
+              "contentMarginsDisabled": false
+            }
+          ]
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widget_root"
+  android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
+  android:background="@drawable/widget_background" android:padding="11dp">
+  <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Eisenhower Matrix"
+    android:textColor="#FFFFFFFF" android:textSize="17sp" android:textStyle="bold"/>
+  <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+    android:layout_marginTop="8dp" android:orientation="horizontal">
+    <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+      android:layout_marginEnd="4dp" android:background="@drawable/widget_tile" android:orientation="vertical" android:padding="8dp">
+      <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="URGENT · IMPORTANT" android:textColor="#FFFF6B6B" android:textSize="9sp" android:textStyle="bold"/>
+      <LinearLayout android:id="@+id/matrix_red" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_marginTop="5dp" android:orientation="vertical"/>
+    </LinearLayout>
+    <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+      android:layout_marginStart="4dp" android:background="@drawable/widget_tile" android:orientation="vertical" android:padding="8dp">
+      <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="IMPORTANT" android:textColor="#FFF0B429" android:textSize="9sp" android:textStyle="bold"/>
+      <LinearLayout android:id="@+id/matrix_yellow" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_marginTop="5dp" android:orientation="vertical"/>
+    </LinearLayout>
+  </LinearLayout>
+  <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+    android:layout_marginTop="8dp" android:orientation="horizontal">
+    <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+      android:layout_marginEnd="4dp" android:background="@drawable/widget_tile" android:orientation="vertical" android:padding="8dp">
+      <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="URGENT" android:textColor="#FF60A5FA" android:textSize="9sp" android:textStyle="bold"/>
+      <LinearLayout android:id="@+id/matrix_blue" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_marginTop="5dp" android:orientation="vertical"/>
+    </LinearLayout>
+    <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+      android:layout_marginStart="4dp" android:background="@drawable/widget_tile" android:orientation="vertical" android:padding="8dp">
+      <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="LATER" android:textColor="#FF4ADE80" android:textSize="9sp" android:textStyle="bold"/>
+      <LinearLayout android:id="@+id/matrix_green" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_marginTop="5dp" android:orientation="vertical"/>
+    </LinearLayout>
+  </LinearLayout>
+</LinearLayout>
