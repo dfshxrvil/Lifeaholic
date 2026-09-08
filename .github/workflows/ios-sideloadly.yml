@@ -1,0 +1,99 @@
+name: Build Sideloadly IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID }}
+      EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Install CocoaPods dependencies
+        working-directory: ios
+        run: pod install --deployment
+
+      - name: Build iPhone release without Apple signing credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ios-logs"
+          xcodebuild -version
+          xcodebuild \
+            -workspace ios/Lifeaholic.xcworkspace \
+            -scheme Lifeaholic \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/LifeaholicDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            ENABLE_DEBUG_DYLIB=NO \
+            build 2>&1 | tee "$RUNNER_TEMP/ios-logs/xcodebuild.log"
+
+      - name: Package IPA for Sideloadly
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/LifeaholicDerivedData/Build/Products/Release-iphoneos/Lifeaholic.app"
+          test -d "$app"
+          test -s "$app/main.jsbundle"
+          test -d "$app/PlugIns/ExpoWidgetsTarget.appex"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload" "$GITHUB_WORKSPACE/artifacts"
+          ditto "$app" "$RUNNER_TEMP/ipa/Payload/Lifeaholic.app"
+          app="$RUNNER_TEMP/ipa/Payload/Lifeaholic.app"
+
+          # Temporary local signatures let re-signing tools inspect the bundles.
+          # Sideloadly replaces these with signatures for the user's Apple ID.
+          while IFS= read -r -d '' framework; do
+            codesign --force --sign - --timestamp=none "$framework"
+          done < <(find "$app" -depth -type d -name '*.framework' -print0)
+          while IFS= read -r -d '' library; do
+            codesign --force --sign - --timestamp=none "$library"
+          done < <(find "$app" -type f -name '*.dylib' -print0)
+          codesign --force --sign - --timestamp=none \
+            --entitlements ios/ExpoWidgetsTarget/ExpoWidgetsTarget.entitlements \
+            "$app/PlugIns/ExpoWidgetsTarget.appex"
+          codesign --force --sign - --timestamp=none \
+            --entitlements ios/Lifeaholic/Lifeaholic.entitlements "$app"
+          codesign --verify --deep --strict "$app"
+          cd "$RUNNER_TEMP/ipa"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/artifacts/Lifeaholic-sideloadly.ipa" Payload
+          /usr/bin/unzip -tq "$GITHUB_WORKSPACE/artifacts/Lifeaholic-sideloadly.ipa"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lifeaholic-sideloadly
+          path: artifacts/Lifeaholic-sideloadly.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-log
+          path: ${{ runner.temp }}/ios-logs
+          if-no-files-found: ignore
+          retention-days: 7
