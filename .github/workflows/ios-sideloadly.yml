@@ -30,7 +30,12 @@ jobs:
 
       - name: Install CocoaPods dependencies
         working-directory: ios
-        run: pod install --deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ios-logs"
+          # The committed Podfile.lock predates the npm dependency update.
+          pod update --no-repo-update 2>&1 | tee "$RUNNER_TEMP/ios-logs/pods.log"
 
       - name: Build iPhone release without Apple signing credentials
         shell: bash
@@ -86,6 +91,14 @@ jobs:
         with:
           name: Lifeaholic-sideloadly
           path: artifacts/Lifeaholic-sideloadly.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload resolved native dependency lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-podfile-lock
+          path: ios/Podfile.lock
           if-no-files-found: error
           retention-days: 7
 
