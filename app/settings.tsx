@@ -26,7 +26,7 @@ export default function SettingsScreen() {
     <View style={styles.section}><Text style={[styles.sectionTitle, { color: colors.textMuted }]}>D-DAY EVENTS</Text><View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>{([0, 1] as const).map((index) => <View key={index} style={styles.ddayFields}><Text style={[styles.ddayLabel, { color: colors.text }]}>Event {index + 1}</Text><FormInput accessibilityLabel={`Event ${index + 1} title`} value={eventTitles[index]} onChangeText={(value) => setEventTitles((current) => current.map((item, itemIndex) => itemIndex === index ? value : item))} placeholder="Graduation, launch, exam…" /><FormInput accessibilityLabel={`Event ${index + 1} date`} value={eventDates[index]} onChangeText={(value) => setEventDates((current) => current.map((item, itemIndex) => itemIndex === index ? value : item))} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" /></View>)}</View></View>
     {message && <Text style={{ color: message.includes('saved') ? colors.success : colors.danger }}>{message}</Text>}
     <Button label="Save settings" icon={Save} onPress={() => void save()} loading={saving} />
-    <Button label="Sign out" icon={LogOut} variant="danger" onPress={() => void signOut()} />
+    <Button label="Sign out" icon={LogOut} variant="danger" onPress={() => { void signOut().catch(() => setMessage('Unable to sign out completely. Please retry.')); }} />
     <View style={styles.footer}><Text style={[styles.credit, { color: colors.textMuted }]}>App made by Shxrvil Doifode and Pxrth Rane.</Text></View>
   </Screen>;
 }

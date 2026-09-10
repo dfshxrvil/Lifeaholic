@@ -26,6 +26,14 @@ export function useTasks(date: string, options: { refreshOnMount?: boolean } = {
     tasks, loading, error, refresh,
     addTask: async (title: string, description: string | undefined, priority: TaskPriority) => { if (!user) return; const task = await tasksService.createTask({ user_id: user.id, title, description, date, priority }); setTasks((current) => [...current, task]); },
     setTaskCompletion,
+    editTask: async (task: TaskWithSubtasks, title: string, description: string | undefined, priority: TaskPriority) => {
+      const updated = await tasksService.updateTask(task.id, { title, description, priority });
+      setTasks((current) => current.map((item) => item.id === task.id ? { ...item, ...updated } : item));
+    },
+    deleteTask: async (task: TaskWithSubtasks) => {
+      await tasksService.deleteTask(task.id);
+      setTasks((current) => current.filter((item) => item.id !== task.id));
+    },
     toggleTask: async (task: TaskWithSubtasks) => setTaskCompletion(task, !task.is_completed),
     renameTask: async (task: TaskWithSubtasks, title: string) => { const nextTitle = title.trim(); if (!nextTitle || nextTitle === task.title) return; setTasks((current) => current.map((item) => item.id === task.id ? { ...item, title: nextTitle } : item)); try { await tasksService.setTaskTitle(task.id, nextTitle); } catch (cause) { setTasks((current) => current.map((item) => item.id === task.id ? task : item)); throw cause; } },
     changePriority: async (task: TaskWithSubtasks, priority: TaskPriority) => { setTasks((current) => current.map((item) => item.id === task.id ? { ...item, priority } : item)); try { await tasksService.setTaskPriority(task.id, priority); } catch (cause) { await refresh(); throw cause; } },

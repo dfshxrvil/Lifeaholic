@@ -39,6 +39,13 @@ export async function connectGoogleCalendarNative(): Promise<string> {
 }
 
 export async function disconnectGoogleCalendarNative(): Promise<void> {
+  if (!configured && !process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) return;
   configureGoogleSignIn();
   await GoogleOneTapSignIn.signOut();
+}
+
+export async function refreshGoogleCalendarNative(accessToken: string): Promise<string> {
+  configureGoogleSignIn();
+  await GoogleOneTapSignIn.clearCachedAccessToken(accessToken);
+  return (await GoogleOneTapSignIn.getTokens()).accessToken;
 }

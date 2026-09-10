@@ -50,6 +50,12 @@ export async function setTaskPriority(id: string, priority: TaskPriority) {
   if (error) throw error;
   notifyTaskMutation();
 }
+export async function updateTask(id: string, values: { title: string; description?: string; priority: TaskPriority }) {
+  const { data, error } = await supabase.from('tasks').update({ title: values.title.trim(), description: values.description?.trim() || null, priority: values.priority }).eq('id', id).select('*').single();
+  if (error) throw error;
+  notifyTaskMutation();
+  return data as Task;
+}
 export async function setTaskTitle(id: string, title: string) { const { error } = await supabase.from('tasks').update({ title: title.trim() }).eq('id', id); if (error) throw error; notifyTaskMutation(); }
 export async function deleteTask(id: string) { const { error } = await supabase.from('tasks').delete().eq('id', id); if (error) throw error; notifyTaskMutation(); }
 export async function listSubtasks(taskId: string) { const { data, error } = await supabase.from('subtasks').select('*').eq('task_id', taskId).order('created_at'); if (error) throw error; return data as Subtask[]; }

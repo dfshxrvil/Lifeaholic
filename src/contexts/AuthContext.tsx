@@ -1,6 +1,8 @@
 import type { Session, User } from '@supabase/supabase-js';
 import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '@/services/supabase';
+import { googleCalendarSession } from '@/services/googleCalendarSession';
+import { disconnectGoogleCalendarNative } from '@/services/googleCalendarAuth';
 
 type AuthContextValue = {
   session: Session | null;
@@ -37,7 +39,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
     user: session?.user ?? null,
     loading,
     configured: isSupabaseConfigured,
-    signOut: async () => { if (isSupabaseConfigured) await supabase.auth.signOut(); },
+    signOut: async () => {
+      await googleCalendarSession.clear();
+      await disconnectGoogleCalendarNative();
+      if (isSupabaseConfigured) {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+      }
+    },
   }), [session, loading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

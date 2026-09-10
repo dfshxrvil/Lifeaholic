@@ -10,7 +10,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 
 const rigidImpact = () => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => undefined); };
 
-export function AppModal({ visible, onClose, sheetStyle, children }: PropsWithChildren<{ visible: boolean; onClose: () => void; sheetStyle?: StyleProp<ViewStyle> }>) {
+export function AppModal({ visible, onClose, onShow, sheetStyle, children }: PropsWithChildren<{ visible: boolean; onClose: () => void; onShow?: () => void; sheetStyle?: StyleProp<ViewStyle> }>) {
   const { colors, theme } = useTheme(); const { setModalVisible } = useSpatialModal(); const modalId = useId(); const reduceMotion = useReducedMotion(); const [mounted, setMounted] = useState(visible);
   const overlayOpacity = useSharedValue(visible ? 1 : 0); const translateY = useSharedValue(visible ? 0 : 96); const dragY = useSharedValue(0); const scale = useSharedValue(visible ? 1 : 0.985);
   useEffect(() => { setModalVisible(modalId, mounted); return () => setModalVisible(modalId, false); }, [modalId, mounted, setModalVisible]);
@@ -29,7 +29,7 @@ export function AppModal({ visible, onClose, sheetStyle, children }: PropsWithCh
     dragY.value = withSpring(0, motion.spatialSpring);
   } });
   const overlayStyle = useAnimatedStyle(() => ({ opacity: overlayOpacity.value })); const sheetMotion = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value + dragY.value }, { scale: scale.value }] }));
-  return <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
+  return <Modal visible={mounted} onShow={onShow} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.fill}>
       <Animated.View style={[StyleSheet.absoluteFill, overlayStyle]}><BlurView intensity={80} tint={theme === 'light' ? 'light' : 'dark'} style={StyleSheet.absoluteFill} /><Pressable accessibilityLabel="Close modal" onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay }]} /></Animated.View>
       <View pointerEvents="box-none" style={styles.overlay}><Animated.View style={[styles.sheetFrame, sheetMotion, sheetStyle]}><BlurView intensity={80} tint={theme === 'light' ? 'light' : 'dark'} style={[styles.sheet, sheetStyle ? styles.sheetFill : undefined, { backgroundColor: colors.glass, borderColor: colors.border }]}><GestureDetector gesture={dismissGesture}><Animated.View accessibilityRole="button" accessibilityLabel="Swipe down to close" style={styles.dragTarget}><View style={[styles.handle, { backgroundColor: colors.textMuted }]} /></Animated.View></GestureDetector>{children}</BlurView></Animated.View></View>

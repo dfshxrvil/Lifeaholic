@@ -5,3 +5,7 @@ export async function connectGoogleCalendarNative(): Promise<string> {
 export async function disconnectGoogleCalendarNative(): Promise<void> {
   // Android supplies the native implementation through the platform-specific file.
 }
+
+export async function refreshGoogleCalendarNative(_accessToken: string): Promise<string> {
+  throw new Error('Native Calendar renewal is only available on Android.');
+}

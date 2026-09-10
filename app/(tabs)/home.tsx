@@ -1,5 +1,6 @@
 import { CheckCircle2, Plus, RefreshCw, Settings } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -37,7 +38,35 @@ export default function HomeScreen() {
   const { actionBottom, contentBottom } = useFloatingTabBarMetrics();
   const { width: screenWidth } = useWindowDimensions();
   const [date, setDate] = useState(toDateKey(new Date())); const [addOpen, setAddOpen] = useState(false); const [finishedOpen, setFinishedOpen] = useState(false); const [activeTask, setActiveTask] = useState<TaskWithSubtasks | null>(null); const [dDays, setDDays] = useState<DDayEvent[]>([]); const [dDaysLoaded, setDDaysLoaded] = useState(false); const [dDayOpen, setDDayOpen] = useState(false); const [dDayTitle, setDDayTitle] = useState(''); const [dDayDate, setDDayDate] = useState(''); const [dDaySaving, setDDaySaving] = useState(false); const [dDayError, setDDayError] = useState<string | null>(null); const [undoQueue, setUndoQueue] = useState<TaskWithSubtasks[]>([]); const [actionError, setActionError] = useState<string | null>(null); const [refreshingHome, setRefreshingHome] = useState(false);
-  const playCompletionFeedback = useCompletionFeedback(); const { tasks, loading, error, addTask, setTaskCompletion, renameTask, refresh } = useTasks(date, { refreshOnMount: false });
+  const playCompletionFeedback = useCompletionFeedback(); const { tasks, loading, error, addTask, setTaskCompletion, renameTask, editTask, deleteTask, refresh } = useTasks(date, { refreshOnMount: false });
+  const [menuTask, setMenuTask] = useState<TaskWithSubtasks | null>(null);
+  const [editingTask, setEditingTask] = useState<TaskWithSubtasks | null>(null);
+  const [focusSubtask, setFocusSubtask] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deletingTask, setDeletingTask] = useState(false);
+  const [menuError, setMenuError] = useState<string | null>(null);
+  const actionTransition = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (actionTransition.current) clearTimeout(actionTransition.current); }, []);
+  const afterSheetCloses = (action: () => void) => {
+    if (actionTransition.current) clearTimeout(actionTransition.current);
+    actionTransition.current = setTimeout(action, 280);
+  };
+  const openTaskMenu = (task: TaskWithSubtasks) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
+    setConfirmDelete(false); setMenuError(null);
+    if (finishedOpen) { setFinishedOpen(false); afterSheetCloses(() => setMenuTask(task)); }
+    else setMenuTask(task);
+  };
+  const removeSelectedTask = async () => {
+    if (!menuTask || deletingTask) return;
+    setDeletingTask(true); setMenuError(null);
+    try {
+      await deleteTask(menuTask);
+      setUndoQueue((current) => current.filter((item) => item.id !== menuTask.id));
+      setMenuTask(null);
+    } catch (cause) { setMenuError(cause instanceof Error ? cause.message : 'Unable to delete task.'); }
+    finally { setDeletingTask(false); }
+  };
   const scrollHaptics = useScrollBoundaryHaptics();
   const refreshHome = useCallback(async (showIndicator = false) => { if (showIndicator) setRefreshingHome(true); try { const dDayRefresh = user ? listDDayEvents(user.id).then(setDDays).finally(() => setDDaysLoaded(true)) : Promise.resolve().then(() => { setDDays([]); setDDaysLoaded(true); }); await Promise.allSettled([refresh(), refreshCalendar(), dDayRefresh]); } finally { if (showIndicator) setRefreshingHome(false); } }, [refresh, refreshCalendar, user]);
   useFocusEffect(useCallback(() => { void refreshHome(false); }, [refreshHome]));
@@ -61,12 +90,26 @@ export default function HomeScreen() {
   const saveDDay = async () => { if (!user || !dDayTitle.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(dDayDate)) { setDDayError('Enter an event name and date in YYYY-MM-DD format.'); return; } setDDaySaving(true); setDDayError(null); try { const event = await saveDDayEvent(user.id, 1, dDayTitle, dDayDate); setDDays((current) => [event, ...current.filter((item) => item.slot !== 1)]); notifyWidgetDataChanged(); setDDayOpen(false); } catch (cause) { setDDayError(cause instanceof Error ? cause.message : 'Unable to save event.'); } finally { setDDaySaving(false); } };
   const empty = loading ? <ActivityIndicator color={colors.accent} style={styles.empty} /> : <View style={styles.empty}><Text style={[styles.emptyTitle, { color: colors.text }]}>You’re all clear</Text><Text style={[styles.emptyText, { color: colors.textMuted }]}>{error ?? 'Add a task or enjoy the open space.'}</Text></View>;
   return <Screen contentStyle={styles.screen}> 
-    <FlatList data={active} keyExtractor={(task) => task.id} renderItem={({ item, index }) => <Animated.View entering={reduceMotion ? undefined : FadeIn.delay(Math.min(index, 10) * motion.stagger).duration(220)} exiting={reduceMotion ? undefined : collapseOut} layout={reduceMotion ? undefined : LinearTransition.springify().damping(18)}><TaskCard task={item} onToggle={() => void completeTask(item)} onOpen={() => setActiveTask(item)} onRename={(title) => renameTask(item, title)} /></Animated.View>} ListHeaderComponent={<View style={styles.pageHeader}><View style={styles.header}><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65} style={[styles.date, { color: colors.text }]}>{todayLabel}</Text><View style={styles.headerControls}><DDayWidget slot={1} event={dDays.find((item) => item.slot === 1)} onPress={openDDay} /><AnimatedPressable accessibilityLabel="Settings" onPress={() => router.push('/settings')} style={[styles.settings, { backgroundColor: colors.card, borderColor: colors.border }]}><Settings color={colors.text} size={20} /></AnimatedPressable></View></View><WhatsNext /><View style={styles.taskHeader}><View><Text style={[styles.sectionTitle, { color: colors.text }]}>Tasks</Text><Text style={[styles.taskMeta, { color: colors.textMuted }]}>{finished.length} of {tasks.length} completed</Text></View><AnimatedPressable onPress={() => setFinishedOpen(true)} style={styles.finished}><CheckCircle2 size={17} color={colors.success} /><Text style={[styles.finishedText, { color: colors.textMuted }]}>Finished</Text></AnimatedPressable></View><CalendarBar selected={date} onSelect={setDate} scrollable /><View accessibilityLabel={`${finished.length} of ${tasks.length} daily tasks completed`} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: tasks.length, now: finished.length }} style={[styles.progressTrack, { backgroundColor: colors.border }]}><View style={[styles.progressFill, { width: `${taskProgress * 100}%`, backgroundColor: colors.accent }]} /></View>{actionError && <Text style={[styles.error, { color: colors.danger }]}>{actionError}</Text>}</View>} ListEmptyComponent={empty} contentContainerStyle={[styles.pageContent, { paddingBottom: contentBottom + 16 }]} showsVerticalScrollIndicator={false} bounces alwaysBounceVertical onScrollBeginDrag={scrollHaptics.onScrollBeginDrag} onScroll={scrollHaptics.onScroll} scrollEventThrottle={16} />
+    <FlatList data={active} keyExtractor={(task) => task.id} renderItem={({ item, index }) => <Animated.View entering={reduceMotion ? undefined : FadeIn.delay(Math.min(index, 10) * motion.stagger).duration(220)} exiting={reduceMotion ? undefined : collapseOut} layout={reduceMotion ? undefined : LinearTransition.springify().damping(18)}><TaskCard task={item} onToggle={() => void completeTask(item)} onOpen={() => { setFocusSubtask(false); setActiveTask(item); }} onLongPress={() => openTaskMenu(item)} onRename={(title) => renameTask(item, title)} /></Animated.View>} ListHeaderComponent={<View style={styles.pageHeader}><View style={styles.header}><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65} style={[styles.date, { color: colors.text }]}>{todayLabel}</Text><View style={styles.headerControls}><DDayWidget slot={1} event={dDays.find((item) => item.slot === 1)} onPress={openDDay} /><AnimatedPressable accessibilityLabel="Settings" onPress={() => router.push('/settings')} style={[styles.settings, { backgroundColor: colors.card, borderColor: colors.border }]}><Settings color={colors.text} size={20} /></AnimatedPressable></View></View><WhatsNext /><View style={styles.taskHeader}><View><Text style={[styles.sectionTitle, { color: colors.text }]}>Tasks</Text><Text style={[styles.taskMeta, { color: colors.textMuted }]}>{finished.length} of {tasks.length} completed</Text></View><AnimatedPressable onPress={() => setFinishedOpen(true)} style={styles.finished}><CheckCircle2 size={17} color={colors.success} /><Text style={[styles.finishedText, { color: colors.textMuted }]}>Finished</Text></AnimatedPressable></View><CalendarBar selected={date} onSelect={setDate} scrollable /><View accessibilityLabel={`${finished.length} of ${tasks.length} daily tasks completed`} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: tasks.length, now: finished.length }} style={[styles.progressTrack, { backgroundColor: colors.border }]}><View style={[styles.progressFill, { width: `${taskProgress * 100}%`, backgroundColor: colors.accent }]} /></View>{actionError && <Text style={[styles.error, { color: colors.danger }]}>{actionError}</Text>}</View>} ListEmptyComponent={empty} contentContainerStyle={[styles.pageContent, { paddingBottom: contentBottom + 16 }]} showsVerticalScrollIndicator={false} bounces alwaysBounceVertical onScrollBeginDrag={scrollHaptics.onScrollBeginDrag} onScroll={scrollHaptics.onScroll} scrollEventThrottle={16} />
     <AnimatedPressable accessibilityRole="button" accessibilityLabel="Refresh Home" disabled={refreshingHome || loading || calendarLoading} onPress={() => { scrollHaptics.refreshImpact(); void refreshHome(true); }} style={[styles.refreshButton, { bottom: actionBottom + 5, backgroundColor: colors.card, borderColor: colors.border, opacity: refreshingHome || loading || calendarLoading ? 0.7 : 1 }]}>{refreshingHome || loading || calendarLoading ? <ActivityIndicator size="small" color={colors.accent} /> : <RefreshCw size={18} color={colors.accent} />}</AnimatedPressable>
     <AnimatedPressable accessibilityLabel="Add task" onPress={() => setAddOpen(true)} style={[styles.fab, { bottom: actionBottom, backgroundColor: colors.accent }]}><Plus color={colors.buttonText} size={25} /></AnimatedPressable>
     <UndoToast visible={Boolean(currentUndo)} taskTitle={currentUndo?.title} bottom={Math.max(98, insets.bottom + 91)} onUndo={() => { if (!currentUndo) return; setUndoQueue((items) => items.slice(1)); void restore({ ...currentUndo, is_completed: true }); }} />
-    <AddTaskModal visible={addOpen} date={date} onClose={() => setAddOpen(false)} onAdd={addTask} /><SubtaskModal task={activeTask} onClose={() => setActiveTask(null)} />
-    <AppModal visible={finishedOpen} onClose={() => setFinishedOpen(false)}><View style={styles.sheet}><Text style={[styles.sheetTitle, { color: colors.text }]}>Finished tasks</Text>{finished.length ? finished.map((task) => <TaskCard key={task.id} task={task} onToggle={() => void restore(task)} onRename={(title) => renameTask(task, title)} />) : <Text style={{ color: colors.textMuted }}>Completed tasks for this day appear here.</Text>}</View></AppModal>
+    <AddTaskModal visible={addOpen} date={date} onClose={() => setAddOpen(false)} onAdd={addTask} /><SubtaskModal task={activeTask} focusInput={focusSubtask} onClose={() => { setActiveTask(null); setFocusSubtask(false); }} />
+    <AddTaskModal visible={Boolean(editingTask)} task={editingTask} date={editingTask?.date ?? date} onClose={() => setEditingTask(null)} onAdd={async (title, description, priority) => { if (editingTask) await editTask(editingTask, title, description, priority); }} />
+    <AppModal visible={Boolean(menuTask)} onClose={() => { if (!deletingTask) setMenuTask(null); }}><View style={styles.sheet}>
+      <Text style={[styles.sheetTitle, { color: colors.text }]}>{confirmDelete ? 'Delete task?' : menuTask?.title}</Text>
+      {confirmDelete ? <>
+        <Text style={{ color: colors.textMuted }}>This will delete the task and its subtasks.</Text>
+        <Button label="Cancel" variant="secondary" disabled={deletingTask} onPress={() => setConfirmDelete(false)} />
+        <Button label="Delete task" variant="danger" loading={deletingTask} onPress={() => void removeSelectedTask()} />
+      </> : <>
+        <Button label="Edit" variant="secondary" onPress={() => { const task = menuTask; setMenuTask(null); afterSheetCloses(() => setEditingTask(task)); }} />
+        <Button label="Add Subtask" variant="secondary" onPress={() => { const task = menuTask; setMenuTask(null); afterSheetCloses(() => { setFocusSubtask(true); setActiveTask(task); }); }} />
+        <Button label="Delete" variant="danger" onPress={() => setConfirmDelete(true)} />
+      </>}
+      {menuError && <Text style={{ color: colors.danger }}>{menuError}</Text>}
+    </View></AppModal>
+    <AppModal visible={finishedOpen} onClose={() => setFinishedOpen(false)}><View style={styles.sheet}><Text style={[styles.sheetTitle, { color: colors.text }]}>Finished tasks</Text>{finished.length ? finished.map((task) => <TaskCard key={task.id} task={task} onToggle={() => void restore(task)} onLongPress={() => openTaskMenu(task)} onRename={(title) => renameTask(task, title)} />) : <Text style={{ color: colors.textMuted }}>Completed tasks for this day appear here.</Text>}</View></AppModal>
     <AppModal visible={dDayOpen} onClose={() => setDDayOpen(false)}><View style={styles.sheet}><Text style={[styles.sheetTitle, { color: colors.text }]}>D-Day event</Text><FormInput accessibilityLabel="D-Day event name" value={dDayTitle} onChangeText={setDDayTitle} placeholder="Exam, launch, graduation…" autoFocus /><FormInput accessibilityLabel="D-Day target date" value={dDayDate} onChangeText={setDDayDate} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />{dDayError && <Text style={{ color: colors.danger, fontSize: 11 }}>{dDayError}</Text>}<Button label="Save event" loading={dDaySaving} onPress={() => void saveDDay()} /></View></AppModal>
   </Screen>;
 }
