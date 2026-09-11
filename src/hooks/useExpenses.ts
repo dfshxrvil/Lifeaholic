@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { randomUUID } from 'expo-crypto';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/services/supabase';
+import { savePersonalExpense } from '@/services/personalExpenses';
+import { expenseErrorMessage, validateExpenseDetails } from '@/utils/expenseErrors';
 import type { Expense, ExpenseCategory, ExpenseSplit, ExpenseSplitType, ExpenseWithSplits } from '@/types/database';
 
 export type ExpenseFilters = {
@@ -14,6 +17,7 @@ export type ExpenseFilters = {
 
 export type SplitDraft = { userId: string; amount: number };
 export type CreateExpenseInput = {
+  requestId?: string;
   description: string;
   amount: number;
   expenseDate: string;
@@ -95,9 +99,19 @@ export function useExpenses(filters: ExpenseFilters = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const filterKey = JSON.stringify(filters);
+  const scope = `${user?.id ?? ''}:${filterKey}`;
+  const currentScope = useRef(scope);
+  const requestVersion = useRef(0);
+  useLayoutEffect(() => {
+    currentScope.current = scope;
+    requestVersion.current += 1;
+  }, [scope]);
 
   const refresh = useCallback(async () => {
-    if (!user) { setExpenses([]); return; }
+    if (currentScope.current !== scope) return;
+    const version = ++requestVersion.current;
+    const isCurrent = () => currentScope.current === scope && requestVersion.current === version;
+    if (!user) { setExpenses([]); setLoading(false); setError(null); return; }
     setLoading(true); setError(null);
     try {
       let query = supabase.from('expenses').select('*').order('expense_date', { ascending: false }).order('created_at', { ascending: false });
@@ -109,27 +123,40 @@ export function useExpenses(filters: ExpenseFilters = {}) {
       if (filters.search?.trim()) query = query.ilike('description', `%${filters.search.trim()}%`);
       const { data, error: queryError } = await query;
       if (queryError) throw queryError;
-      setExpenses(await attachSplits(data ?? []));
+      const loaded = await attachSplits(data ?? []);
+      if (isCurrent()) setExpenses(loaded);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to load expenses.');
-    } finally { setLoading(false); }
+      if (isCurrent()) setError(expenseErrorMessage(cause, 'Unable to load expenses.'));
+    } finally { if (isCurrent()) setLoading(false); }
   // filterKey deliberately stabilizes callers that pass an inline filter object.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, filterKey]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    setExpenses([]);
+    void refresh();
+    return () => { requestVersion.current += 1; };
+  }, [refresh]);
 
   const createExpense = useCallback(async (input: CreateExpenseInput) => {
     if (!user) throw new Error('Sign in to add an expense.');
     const description = input.description.trim();
-    if (!description) throw new Error('Add a description.');
+    validateExpenseDetails(description, input.amount);
     const splitType = input.groupId ? (input.splitType ?? 'split_equally') : 'personal';
-    const paidBy = input.groupId && splitType === 'other_owed_full'
+    const paidBy = !input.groupId ? user.id : splitType === 'other_owed_full'
       ? input.counterpartyId
       : splitType === 'you_owed_full' ? user.id : (input.paidBy ?? user.id);
     if (!paidBy) throw new Error('Choose who paid.');
     const category = input.category ?? 'Other'; const customCategoryNote = input.customCategoryNote?.trim() || null;
     if (category === 'Other' && !customCategoryNote) throw new Error('Add a note for the Other category.');
+    if (!input.groupId) {
+      const expense = await savePersonalExpense(supabase, {
+        id: input.requestId ?? randomUUID(), description, amount: input.amount,
+        expenseDate: input.expenseDate, category, customCategoryNote,
+      });
+      await refresh();
+      return expense;
+    }
     const splits = calculateSplitDistributions({ ...input, splitType, currentUserId: user.id });
     const { data: expense, error: expenseError } = await supabase.from('expenses').insert({
       created_by: user.id, group_id: input.groupId ?? null, description, amount: input.amount,
@@ -152,6 +179,18 @@ export function useExpenses(filters: ExpenseFilters = {}) {
     const existing = expenses.find((expense) => expense.id === expenseId);
     if (!existing) throw new Error('Expense not found.');
     const groupId = updates.groupId === undefined ? existing.group_id : updates.groupId;
+    if (!existing.group_id && !groupId) {
+      await savePersonalExpense(supabase, {
+        id: expenseId, description: updates.description ?? existing.description,
+        amount: updates.amount ?? Number(existing.amount),
+        expenseDate: updates.expenseDate ?? existing.expense_date,
+        category: updates.category ?? existing.category,
+        customCategoryNote: updates.customCategoryNote === undefined ? existing.custom_category_note : updates.customCategoryNote,
+      });
+      await refresh();
+      return;
+    }
+    if (Boolean(existing.group_id) !== Boolean(groupId)) throw new Error('Create a new expense to move between personal and group expenses.');
     const splitType = groupId ? (updates.splitType ?? existing.split_type) : 'personal';
     const paidBy = splitType === 'you_owed_full' ? user.id
       : splitType === 'other_owed_full' ? (updates.counterpartyId ?? existing.paid_by)
@@ -162,6 +201,7 @@ export function useExpenses(filters: ExpenseFilters = {}) {
       group_id: groupId ?? null, paid_by: paidBy, split_type: splitType,
       category: updates.category ?? existing.category, custom_category_note: updates.customCategoryNote === undefined ? existing.custom_category_note : updates.customCategoryNote?.trim() || null,
     };
+    validateExpenseDetails(payload.description, payload.amount);
     if (payload.category === 'Other' && !payload.custom_category_note) throw new Error('Add a note for the Other category.');
     const shouldResplit = updates.amount !== undefined || updates.groupId !== undefined || updates.splitType !== undefined || updates.memberIds !== undefined || updates.counterpartyId !== undefined || updates.customSplits !== undefined;
     const { error: updateError } = await supabase.from('expenses').update(payload).eq('id', expenseId);

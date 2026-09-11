@@ -1,6 +1,7 @@
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Users } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { randomUUID } from 'expo-crypto';
 import { LayoutAnimation, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AppModal } from '@/components/ui/AppModal';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
@@ -12,6 +13,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import type { CreateExpenseInput } from '@/hooks/useExpenses';
 import type { Group, GroupMemberProfile, ExpenseCategory, ExpenseSplitType } from '@/types/database';
 import { toDateKey } from '@/utils/dates';
+import { expenseErrorMessage, parseExpenseAmount } from '@/utils/expenseErrors';
 
 type Props = {
   visible: boolean;
@@ -43,12 +45,15 @@ export function AddExpenseModal({ visible, groups, membersByGroup, onClose, onCr
   const [counterpartyId, setCounterpartyId] = useState(''); const [panel, setPanel] = useState<'group' | 'payer' | 'member' | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false); const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null);
   const [errorPulse, setErrorPulse] = useState(0);
+  const submissionInFlight = useRef(false);
+  const requestId = useRef('');
   const members = groupId ? (membersByGroup[groupId] ?? []) : [];
   const nameFor = (id: string) => members.find((member) => member.user_id === id)?.profile.username
     ?? members.find((member) => member.user_id === id)?.profile.email ?? (id === user?.id ? 'You' : 'Member');
 
   useEffect(() => {
     if (!visible) return;
+    requestId.current = randomUUID();
     setDescription(''); setAmount(''); setCategory('Food'); setCustomCategoryNote(''); setDate(toDateKey(new Date())); setGroupId(null); setPaidBy(user?.id ?? '');
     setSplitType('split_equally'); setCounterpartyId(''); setPanel(null); setError(null);
   }, [visible, user?.id]);
@@ -59,19 +64,23 @@ export function AddExpenseModal({ visible, groups, membersByGroup, onClose, onCr
   };
   const fail = (message: string) => { setError(message); setErrorPulse((value) => value + 1); };
   const submit = async () => {
-    const numericAmount = Number(amount.replace(/[^0-9.]/g, ''));
+    if (submissionInFlight.current) return;
+    let numericAmount: number;
+    try { numericAmount = parseExpenseAmount(amount); }
+    catch (cause) { fail(expenseErrorMessage(cause, 'Enter a valid amount.')); return; }
     if (!description.trim()) { fail('Add a description.'); return; }
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) { fail('Enter a valid amount.'); return; }
     if (category === 'Other' && !customCategoryNote.trim()) { fail('Add a note describing the Other expense.'); return; }
     if (groupId && members.length === 0) { fail('This group needs at least one member.'); return; }
     if (groupId && splitType !== 'split_equally' && !counterpartyId) { fail('Choose the other member.'); return; }
+    submissionInFlight.current = true;
     setSaving(true); setError(null);
     try {
-      await onCreate({ description: description.trim(), amount: numericAmount, expenseDate: date, groupId,
+      await onCreate({ requestId: requestId.current, description: description.trim(), amount: numericAmount, expenseDate: date, groupId,
         paidBy: paidBy || user?.id, splitType: groupId ? splitType : 'personal', memberIds: members.map((member) => member.user_id), counterpartyId, category, customCategoryNote: customCategoryNote.trim() || null });
       onClose();
-    } catch (cause) { fail(cause instanceof Error ? cause.message : 'Unable to add expense.'); }
-    finally { setSaving(false); }
+    } catch (cause) { fail(expenseErrorMessage(cause, 'Unable to add expense.')); }
+    finally { submissionInFlight.current = false; setSaving(false); }
   };
 
   const renderSelectorPanel = (kind: 'group' | 'payer' | 'member') => {
@@ -90,7 +99,7 @@ export function AddExpenseModal({ visible, groups, membersByGroup, onClose, onCr
   };
 
   return <>
-    <AppModal visible={visible} onClose={onClose}><ValidationFeedback trigger={errorPulse}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+    <AppModal visible={visible} onClose={() => { if (!submissionInFlight.current) onClose(); }}><ValidationFeedback trigger={errorPulse}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
       <View><Text style={[styles.title, { color: colors.text }]}>Add an expense</Text><Text style={[styles.subtitle, { color: colors.textMuted }]}>Log it now. Sort the balance automatically.</Text></View>
       <View style={[styles.inputCard, { borderColor: colors.border, backgroundColor: colors.card }]}>
         <TextInput accessibilityLabel="Expense description" autoFocus value={description} onChangeText={setDescription} placeholder="What was it for?" placeholderTextColor={colors.textMuted} style={[styles.description, { color: colors.text, borderBottomColor: colors.border }]} />
@@ -112,7 +121,7 @@ export function AddExpenseModal({ visible, groups, membersByGroup, onClose, onCr
         {splitType !== 'split_equally' && <><Text style={[styles.sectionLabel, { color: colors.textMuted }]}>{splitType === 'you_owed_full' ? 'WHO OWES YOU?' : 'WHO PAID FOR YOU?'}</Text><AnimatedPressable onPress={() => setPanel(panel === 'member' ? null : 'member')} style={[styles.select, { backgroundColor: colors.card, borderColor: colors.border }]}><Text style={[styles.selectText, { color: counterpartyId ? colors.text : colors.textMuted }]}>{counterpartyId ? nameFor(counterpartyId) : 'Choose a member'}</Text><ChevronDown size={17} color={colors.textMuted} /></AnimatedPressable>{panel === 'member' && renderSelectorPanel('member')}</>}
       </View>}
       {error && <Text style={[styles.error, { color: colors.danger }]}>{error}</Text>}
-      <View style={styles.actions}><Button label="Cancel" variant="secondary" onPress={onClose} style={styles.action} /><Button label="Add expense" loading={saving} onPress={() => void submit()} style={styles.action} /></View>
+      <View style={styles.actions}><Button label="Cancel" variant="secondary" disabled={saving} onPress={onClose} style={styles.action} /><Button label="Add expense" loading={saving} onPress={() => void submit()} style={styles.action} /></View>
     </ScrollView></ValidationFeedback></AppModal>
     <Modal visible={calendarOpen} transparent animationType="fade" onRequestClose={() => setCalendarOpen(false)}><Pressable onPress={() => setCalendarOpen(false)} style={[styles.calendarOverlay, { backgroundColor: colors.overlay }]}><Pressable onPress={() => {}} style={[styles.calendar, { borderColor: colors.border }]}><BlurView intensity={80} tint={theme === 'light' ? 'light' : 'dark'} style={StyleSheet.absoluteFill} /><CalendarDays size={28} color={colors.accent} /><Text style={[styles.calendarTitle, { color: colors.text }]}>Expense date</Text><View style={styles.dateStepper}><AnimatedPressable onPress={() => setDate(addDays(date, -1))} style={[styles.stepButton, { borderColor: colors.border }]}><ChevronLeft color={colors.text} /></AnimatedPressable><Text style={[styles.dateText, { color: colors.text }]}>{new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}</Text><AnimatedPressable onPress={() => setDate(addDays(date, 1))} style={[styles.stepButton, { borderColor: colors.border }]}><ChevronRight color={colors.text} /></AnimatedPressable></View><View style={styles.calendarActions}><Button label="Today" variant="secondary" onPress={() => setDate(toDateKey(new Date()))} style={styles.action} /><Button label="Done" onPress={() => setCalendarOpen(false)} style={styles.action} /></View></Pressable></Pressable></Modal>
   </>;

@@ -1,4 +1,4 @@
-import { Plus, Search, Settings2, Trash2, Users } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Plus, Search, Settings2, Trash2, Users } from 'lucide-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { useMemo, useState } from 'react';
@@ -33,14 +33,17 @@ export function FinanceScreen() {
   const scrollHaptics = useScrollBoundaryHaptics();
   const [mode, setMode] = useState<Mode>('personal'); const [search, setSearch] = useState(''); const [groupId, setGroupId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false); const [groupsOpen, setGroupsOpen] = useState(false);
+  const [month, setMonth] = useState(() => toDateKey(new Date()).slice(0, 7));
   useEffect(() => {
     if (compose !== 'expense') return;
     setAddOpen(true);
     router.setParams({ compose: undefined });
   }, [compose, router]);
   const groupsHook = useGroups();
-  const range = useMemo(() => { const now = new Date(); return { startDate: toDateKey(new Date(now.getFullYear(), now.getMonth(), 1)), endDate: toDateKey(new Date(now.getFullYear(), now.getMonth() + 1, 0)) }; }, []);
-  const expensesHook = useExpenses({ ...range, personalOnly: mode === 'personal', groupOnly: mode === 'group' && !groupId, groupId: mode === 'group' ? groupId ?? undefined : undefined, search: search || undefined });
+  const range = useMemo(() => { const date = new Date(`${month}-01T12:00:00`); return { startDate: `${month}-01`, endDate: toDateKey(new Date(date.getFullYear(), date.getMonth() + 1, 0)) }; }, [month]);
+  const expensesHook = useExpenses({ ...range, personalOnly: mode === 'personal', groupOnly: mode === 'group' && !groupId, groupId: mode === 'group' ? groupId ?? undefined : undefined });
+  const visibleExpenses = useMemo(() => expensesHook.expenses.filter((expense) => expense.description.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [expensesHook.expenses, search]);
+  const stepMonth = (offset: number) => { const date = new Date(`${month}-01T12:00:00`); date.setMonth(date.getMonth() + offset); setMonth(toDateKey(date).slice(0, 7)); };
 
   const changeMode = (next: Mode) => { setMode(next); setSearch(''); if (next === 'personal') setGroupId(null); };
   const remove = (expense: ExpenseWithSplits) => {
@@ -77,6 +80,11 @@ export function FinanceScreen() {
   return <Screen contentStyle={[styles.screen, { paddingBottom: contentBottom }]}> 
     <View style={styles.header}><View><Text style={[styles.title, { color: colors.text }]}>Money, made clear.</Text><Text style={[styles.subtitle, { color: colors.textMuted }]}>Your month at a glance</Text></View><AnimatedPressable accessibilityLabel="Manage groups" onPress={() => setGroupsOpen(true)} style={[styles.manage, { backgroundColor: colors.card, borderColor: colors.border }]}><Users size={20} color={colors.accent} /><Settings2 size={13} color={colors.textMuted} /></AnimatedPressable></View>
     <SlidingSegmentedControl value={mode} onChange={changeMode} options={[{ value: 'personal', label: 'Personal Expenses' }, { value: 'group', label: 'Group Expenses' }]} />
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <AnimatedPressable accessibilityLabel="Previous month" onPress={() => stepMonth(-1)} style={{ padding: 10 }}><ChevronLeft size={20} color={colors.text} /></AnimatedPressable>
+      <Text style={{ color: colors.text, fontWeight: '700' }}>{new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Text>
+      <AnimatedPressable accessibilityLabel="Next month" onPress={() => stepMonth(1)} style={{ padding: 10 }}><ChevronRight size={20} color={colors.text} /></AnimatedPressable>
+    </View>
     <View style={[
       styles.summary,
       theme === 'light' && styles.summaryLight,
@@ -90,11 +98,18 @@ export function FinanceScreen() {
     </View>
     {mode === 'group' && <View><FlatList horizontal data={[{ id: '', name: 'All groups' }, ...groupsHook.groups]} keyExtractor={(item) => item.id || 'all'} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters} renderItem={({ item }) => <AnimatedPressable onPress={() => setGroupId(item.id || null)} style={[styles.filterChip, { backgroundColor: (groupId ?? '') === item.id ? colors.accentSoft : colors.card, borderColor: (groupId ?? '') === item.id ? colors.accent : colors.border }]}><Text style={[styles.filterText, { color: colors.text }]}>{item.name}</Text></AnimatedPressable>} /></View>}
     <View style={[styles.search, { backgroundColor: colors.card, borderColor: colors.border }]}><Search size={17} color={colors.textMuted} /><TextInput accessibilityLabel="Search expenses" value={search} onChangeText={setSearch} placeholder="Search this month" placeholderTextColor={colors.textMuted} style={[styles.searchInput, { color: colors.text }]} /></View>
-    <View style={styles.listHeader}><Text style={[styles.listTitle, { color: colors.text }]}>Recent transactions</Text><Text style={[styles.listCount, { color: colors.textMuted }]}>{expensesHook.expenses.length} entries</Text></View>
-    {expensesHook.loading && expensesHook.expenses.length === 0 ? <ActivityIndicator color={colors.accent} style={styles.loader} /> : <FlatList data={expensesHook.expenses} keyExtractor={(item) => item.id} renderItem={renderExpense} contentContainerStyle={[styles.list, expensesHook.expenses.length === 0 && styles.emptyList]} onScrollBeginDrag={scrollHaptics.onScrollBeginDrag} onScroll={scrollHaptics.onScroll} scrollEventThrottle={16} refreshControl={<RefreshControl refreshing={expensesHook.loading} onRefresh={() => { scrollHaptics.refreshImpact(); void expensesHook.refresh(); }} tintColor={colors.accent} />} ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: colors.text }]}>Nothing logged here yet.</Text><Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>Tap + to add the first expense.</Text></View>} />}
+    <View style={styles.listHeader}><Text style={[styles.listTitle, { color: colors.text }]}>Recent transactions</Text><Text style={[styles.listCount, { color: colors.textMuted }]}>{visibleExpenses.length} entries</Text></View>
+    {expensesHook.loading && expensesHook.expenses.length === 0 ? <ActivityIndicator color={colors.accent} style={styles.loader} /> : <FlatList data={visibleExpenses} keyExtractor={(item) => item.id} renderItem={renderExpense} contentContainerStyle={[styles.list, visibleExpenses.length === 0 && styles.emptyList]} onScrollBeginDrag={scrollHaptics.onScrollBeginDrag} onScroll={scrollHaptics.onScroll} scrollEventThrottle={16} refreshControl={<RefreshControl refreshing={expensesHook.loading} onRefresh={() => { scrollHaptics.refreshImpact(); void expensesHook.refresh(); }} tintColor={colors.accent} />} ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: colors.text }]}>{search.trim() ? 'No matching expenses.' : 'Nothing logged here yet.'}</Text><Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>{search.trim() ? 'Try a different search.' : 'Tap + to add the first expense.'}</Text></View>} />}
     {expensesHook.error && <Text style={[styles.error, { color: colors.danger }]}>{expensesHook.error}</Text>}
     <AnimatedPressable accessibilityLabel="Add expense" onPress={() => setAddOpen(true)} style={[styles.fab, { bottom: actionBottom, backgroundColor: colors.accent }]}><Plus size={27} color={colors.buttonText} strokeWidth={2.5} /></AnimatedPressable>
-    <AddExpenseModal visible={addOpen} groups={groupsHook.groups} membersByGroup={groupsHook.membersByGroup} onClose={() => setAddOpen(false)} onCreate={expensesHook.createExpense} />
+    <AddExpenseModal visible={addOpen} groups={groupsHook.groups} membersByGroup={groupsHook.membersByGroup} onClose={() => setAddOpen(false)} onCreate={async (input) => {
+      const expense = await expensesHook.createExpense(input);
+      setMonth(expense.expense_date.slice(0, 7));
+      setMode(expense.group_id ? 'group' : 'personal');
+      setGroupId(expense.group_id);
+      setSearch('');
+      return expense;
+    }} />
     <GroupModal visible={groupsOpen} groups={groupsHook.groups} membersByGroup={groupsHook.membersByGroup} onClose={() => setGroupsOpen(false)} onCreateGroup={groupsHook.createGroup} onSearchProfiles={groupsHook.searchProfiles} onAddMember={groupsHook.addMember} onRemoveMember={groupsHook.removeMember} onGetBalances={groupsHook.getGroupBalances} />
   </Screen>;
 }

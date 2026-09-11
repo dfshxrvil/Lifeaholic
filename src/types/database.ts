@@ -89,7 +89,13 @@ export interface Database {
       >;
     };
     Views: Record<string, never>;
-    Functions: { rollover_overdue_tasks: { Args: { target_date: string }; Returns: number } };
+    Functions: {
+      rollover_overdue_tasks: { Args: { target_date: string }; Returns: number };
+      save_personal_expense_v1: {
+        Args: { p_id: string; p_description: string; p_amount: number; p_expense_date: string; p_category: string; p_custom_category_note: string | null };
+        Returns: Json;
+      };
+    };
     Enums: { task_priority: TaskPriority };
     CompositeTypes: Record<string, never>;
   };

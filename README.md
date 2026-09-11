@@ -5,7 +5,7 @@ Cross-platform Expo application for daily tasks, focus sessions, and Google Cale
 ## Setup
 
 1. Copy `.env.example` to `.env` and add Supabase and Google OAuth credentials.
-2. Run the SQL files in `supabase/migrations` in numeric order. Existing Iteration 1 projects should run only `002_iteration_two.sql` now.
+2. Run the SQL files in `supabase/migrations` in numeric order. Existing projects should apply all remaining migrations, including `006_personal_expense_ledger.sql` for personal expense saving. See [personal finance setup and verification](docs/personal-finance-fix.md).
 3. Add the redirect URI printed on the Calendar connection screen to each Google OAuth client.
 4. Run `npm install`, then `npm run web` or launch through Expo Go/dev builds.
 
