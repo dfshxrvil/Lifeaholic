@@ -95,6 +95,10 @@ export interface Database {
         Args: { p_id: string; p_description: string; p_amount: number; p_expense_date: string; p_category: string; p_custom_category_note: string | null };
         Returns: Json;
       };
+      save_expense_ledger_v2: {
+        Args: { p_id: string; p_description: string; p_amount: number; p_expense_date: string; p_category: string; p_custom_category_note: string | null; p_group_id: string | null; p_paid_by: string; p_split_type: ExpenseSplitType; p_splits: Json };
+        Returns: Json;
+      };
     };
     Enums: { task_priority: TaskPriority };
     CompositeTypes: Record<string, never>;

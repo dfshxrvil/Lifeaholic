@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { randomUUID } from 'expo-crypto';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/services/supabase';
-import { savePersonalExpense } from '@/services/personalExpenses';
+import { saveExpenseLedger } from '@/services/personalExpenses';
 import { expenseErrorMessage, validateExpenseDetails } from '@/utils/expenseErrors';
 import type { Expense, ExpenseCategory, ExpenseSplit, ExpenseSplitType, ExpenseWithSplits } from '@/types/database';
 
@@ -149,29 +149,14 @@ export function useExpenses(filters: ExpenseFilters = {}) {
     if (!paidBy) throw new Error('Choose who paid.');
     const category = input.category ?? 'Other'; const customCategoryNote = input.customCategoryNote?.trim() || null;
     if (category === 'Other' && !customCategoryNote) throw new Error('Add a note for the Other category.');
-    if (!input.groupId) {
-      const expense = await savePersonalExpense(supabase, {
-        id: input.requestId ?? randomUUID(), description, amount: input.amount,
-        expenseDate: input.expenseDate, category, customCategoryNote,
-      });
-      await refresh();
-      return expense;
-    }
     const splits = calculateSplitDistributions({ ...input, splitType, currentUserId: user.id });
-    const { data: expense, error: expenseError } = await supabase.from('expenses').insert({
-      created_by: user.id, group_id: input.groupId ?? null, description, amount: input.amount,
-      expense_date: input.expenseDate, paid_by: paidBy, split_type: splitType, category, custom_category_note: customCategoryNote,
-    }).select().single();
-    if (expenseError) throw expenseError;
-    const { error: splitsError } = await supabase.from('expense_splits').insert(splits.map((split) => ({
-      expense_id: expense.id, user_id: split.userId, amount_owed: split.amount,
-    })));
-    if (splitsError) {
-      await supabase.from('expenses').delete().eq('id', expense.id);
-      throw splitsError;
-    }
+    const expense = await saveExpenseLedger(supabase, {
+      id: input.requestId ?? randomUUID(), description, amount: input.amount,
+      expenseDate: input.expenseDate, category, customCategoryNote,
+      groupId: input.groupId ?? null, paidBy, splitType, splits,
+    });
     await refresh();
-    return { ...expense, splits: splits.map((split, index) => ({ id: `new-${index}`, expense_id: expense.id, user_id: split.userId, amount_owed: split.amount, is_settled: false })) } as ExpenseWithSplits;
+    return expense;
   }, [user, refresh]);
 
   const updateExpense = useCallback(async (expenseId: string, updates: UpdateExpenseInput) => {
@@ -179,17 +164,6 @@ export function useExpenses(filters: ExpenseFilters = {}) {
     const existing = expenses.find((expense) => expense.id === expenseId);
     if (!existing) throw new Error('Expense not found.');
     const groupId = updates.groupId === undefined ? existing.group_id : updates.groupId;
-    if (!existing.group_id && !groupId) {
-      await savePersonalExpense(supabase, {
-        id: expenseId, description: updates.description ?? existing.description,
-        amount: updates.amount ?? Number(existing.amount),
-        expenseDate: updates.expenseDate ?? existing.expense_date,
-        category: updates.category ?? existing.category,
-        customCategoryNote: updates.customCategoryNote === undefined ? existing.custom_category_note : updates.customCategoryNote,
-      });
-      await refresh();
-      return;
-    }
     if (Boolean(existing.group_id) !== Boolean(groupId)) throw new Error('Create a new expense to move between personal and group expenses.');
     const splitType = groupId ? (updates.splitType ?? existing.split_type) : 'personal';
     const paidBy = splitType === 'you_owed_full' ? user.id
@@ -203,22 +177,20 @@ export function useExpenses(filters: ExpenseFilters = {}) {
     };
     validateExpenseDetails(payload.description, payload.amount);
     if (payload.category === 'Other' && !payload.custom_category_note) throw new Error('Add a note for the Other category.');
+    const previousCounterparty = splitType === 'other_owed_full' ? existing.paid_by : existing.splits.find((split) => split.user_id !== user.id)?.user_id;
     const shouldResplit = updates.amount !== undefined || updates.groupId !== undefined || updates.splitType !== undefined || updates.memberIds !== undefined || updates.counterpartyId !== undefined || updates.customSplits !== undefined;
-    const { error: updateError } = await supabase.from('expenses').update(payload).eq('id', expenseId);
-    if (updateError) throw updateError;
-    if (shouldResplit) {
-      const previousCounterparty = splitType === 'other_owed_full' ? existing.paid_by : existing.splits.find((split) => split.user_id !== user.id)?.user_id;
-      const splits = calculateSplitDistributions({
-        amount: payload.amount, splitType, currentUserId: user.id,
-        memberIds: updates.memberIds ?? existing.splits.map((split) => split.user_id),
-        counterpartyId: updates.counterpartyId ?? previousCounterparty,
-        customSplits: updates.customSplits ?? existing.splits.map((split) => ({ userId: split.user_id, amount: Number(split.amount_owed) })),
-      });
-      const { error: deleteError } = await supabase.from('expense_splits').delete().eq('expense_id', expenseId);
-      if (deleteError) throw deleteError;
-      const { error: insertError } = await supabase.from('expense_splits').insert(splits.map((split) => ({ expense_id: expenseId, user_id: split.userId, amount_owed: split.amount })));
-      if (insertError) throw insertError;
-    }
+    const splits = shouldResplit ? calculateSplitDistributions({
+      amount: payload.amount, splitType, currentUserId: user.id,
+      memberIds: updates.memberIds ?? existing.splits.map((split) => split.user_id),
+      counterpartyId: updates.counterpartyId ?? previousCounterparty,
+      customSplits: updates.customSplits ?? existing.splits.map((split) => ({ userId: split.user_id, amount: Number(split.amount_owed) })),
+    }) : existing.splits.map((split) => ({ userId: split.user_id, amount: Number(split.amount_owed), isSettled: split.is_settled }));
+    await saveExpenseLedger(supabase, {
+      id: expenseId, description: payload.description, amount: payload.amount,
+      expenseDate: payload.expense_date, category: payload.category,
+      customCategoryNote: payload.custom_category_note, groupId: groupId ?? null,
+      paidBy, splitType, splits,
+    });
     await refresh();
   }, [user, expenses, refresh]);
 
