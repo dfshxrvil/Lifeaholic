@@ -65,26 +65,6 @@ create policy "habit_logs_all_own" on public.habit_logs for all to authenticated
 using (exists (select 1 from public.habits h where h.id = habit_id and h.user_id = auth.uid()))
 with check (exists (select 1 from public.habits h where h.id = habit_id and h.user_id = auth.uid()));
 
--- Finance categories. Existing rows become Other and use their description as
--- the required explanatory note, so the new constraint is safe for old data.
-alter table public.expenses add column if not exists category text;
-alter table public.expenses add column if not exists custom_category_note text;
-update public.expenses
-set category = coalesce(category, 'Other'),
-    custom_category_note = case
-      when coalesce(category, 'Other') = 'Other' then coalesce(nullif(trim(custom_category_note), ''), description)
-      else custom_category_note
-    end;
-alter table public.expenses alter column category set default 'Other';
-alter table public.expenses alter column category set not null;
-alter table public.expenses drop constraint if exists expenses_category_check;
-alter table public.expenses add constraint expenses_category_check
-check (category in ('Food', 'Online shopping', 'Other', 'Investments'));
-alter table public.expenses drop constraint if exists expenses_other_category_note_check;
-alter table public.expenses add constraint expenses_other_category_note_check
-check (category <> 'Other' or nullif(trim(custom_category_note), '') is not null);
-create index if not exists expenses_category_idx on public.expenses(created_by, category, expense_date desc);
-
 -- Notes retain content_html during the transition. `content` becomes the source
 -- of truth for the new editor and JSONB fields hold structured interactive data.
 alter table public.notes add column if not exists content text not null default '';

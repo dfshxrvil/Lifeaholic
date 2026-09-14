@@ -1,8 +1,6 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 export type TaskPriority = 'red' | 'yellow' | 'blue' | 'green';
 export type BreakActivity = 'stare_at_wall' | 'sports' | 'socialize' | 'snacks' | 'washroom' | 'other';
-export type ExpenseSplitType = 'personal' | 'split_equally' | 'you_owed_full' | 'other_owed_full' | 'custom';
-export type ExpenseCategory = 'Food' | 'Online shopping' | 'Other' | 'Investments';
 export type ChecklistItem = { id: string; text: string; isCompleted: boolean };
 export type NoteAttachment = { id: string; kind: 'image' | 'video' | 'audio' | 'file'; url: string; path?: string; name?: string };
 export type JournalLocation = { name: string; latitude?: number; longitude?: number };
@@ -53,30 +51,6 @@ export interface Database {
         { id?: string; user_id: string; date_string: string; title?: string; content_html?: string; body_text?: string; media_urls?: string[]; location?: Json | null; voice_memo_url?: string | null; is_bookmarked?: boolean; prompt_category?: string | null; mood?: string | null; created_at?: string; updated_at?: string },
         { date_string?: string; title?: string; content_html?: string; body_text?: string; media_urls?: string[]; location?: Json | null; voice_memo_url?: string | null; is_bookmarked?: boolean; prompt_category?: string | null; mood?: string | null; updated_at?: string }
       >;
-      groups: Table<
-        { id: string; name: string; created_by: string; created_at: string },
-        { id?: string; name: string; created_by: string; created_at?: string },
-        { name?: string }
-      >;
-      group_members: Table<
-        { group_id: string; user_id: string; joined_at: string },
-        { group_id: string; user_id: string; joined_at?: string }
-      >;
-      expenses: Table<
-        { id: string; created_by: string; group_id: string | null; description: string; amount: number; expense_date: string; paid_by: string; split_type: ExpenseSplitType; category: ExpenseCategory; custom_category_note: string | null; created_at: string },
-        { id?: string; created_by: string; group_id?: string | null; description: string; amount: number; expense_date: string; paid_by: string; split_type: ExpenseSplitType; category?: ExpenseCategory; custom_category_note?: string | null; created_at?: string },
-        { group_id?: string | null; description?: string; amount?: number; expense_date?: string; paid_by?: string; split_type?: ExpenseSplitType; category?: ExpenseCategory; custom_category_note?: string | null }
-      >;
-      expense_splits: Table<
-        { id: string; expense_id: string; user_id: string; amount_owed: number; is_settled: boolean },
-        { id?: string; expense_id: string; user_id: string; amount_owed: number; is_settled?: boolean },
-        { amount_owed?: number; is_settled?: boolean }
-      >;
-      expense_payments: Table<
-        { id: string; expense_id: string; user_id: string; amount_paid: number },
-        { id?: string; expense_id: string; user_id: string; amount_paid: number },
-        { user_id?: string; amount_paid?: number }
-      >;
       habits: Table<
         { id: string; user_id: string; title: string; emoji: string | null; days_of_week: number[]; time: string | null; is_archived: boolean; created_at: string },
         { id?: string; user_id: string; title: string; emoji?: string | null; days_of_week: number[]; time?: string | null; is_archived?: boolean; created_at?: string },
@@ -96,17 +70,6 @@ export interface Database {
     Views: Record<string, never>;
     Functions: {
       rollover_overdue_tasks: { Args: { target_date: string }; Returns: number };
-      save_personal_expense_v1: {
-        Args: { p_id: string; p_description: string; p_amount: number; p_expense_date: string; p_category: string; p_custom_category_note: string | null };
-        Returns: Json;
-      };
-      save_expense_ledger_v2: {
-        Args: { p_id: string; p_description: string; p_amount: number; p_expense_date: string; p_category: string; p_custom_category_note: string | null; p_group_id: string | null; p_paid_by: string; p_split_type: ExpenseSplitType; p_splits: Json };
-        Returns: Json;
-      };
-      delete_finance_expense_v3: { Args: { p_expense_id: string }; Returns: boolean };
-      remove_group_member_v3: { Args: { p_group_id: string; p_user_id: string }; Returns: boolean };
-      set_expense_split_settled_v3: { Args: { p_expense_id: string; p_user_id: string; p_settled: boolean }; Returns: boolean };
     };
     Enums: { task_priority: TaskPriority };
     CompositeTypes: Record<string, never>;
@@ -123,12 +86,6 @@ export type FocusBreak = Database['public']['Tables']['focus_breaks']['Row'];
 export type NoteFolder = Database['public']['Tables']['note_folders']['Row'];
 export type Note = Database['public']['Tables']['notes']['Row'];
 export type JournalEntry = Database['public']['Tables']['journal_entries']['Row'];
-export type Group = Database['public']['Tables']['groups']['Row'];
-export type GroupMember = Database['public']['Tables']['group_members']['Row'];
-export type Expense = Database['public']['Tables']['expenses']['Row'];
-export type ExpenseSplit = Database['public']['Tables']['expense_splits']['Row'];
-export type GroupMemberProfile = GroupMember & { profile: Profile };
-export type ExpenseWithSplits = Expense & { splits: ExpenseSplit[] };
 export type Habit = Database['public']['Tables']['habits']['Row'];
 export type HabitInput = { title: string; emoji?: string | null; daysOfWeek: number[]; time?: string | null };
 export type HabitLog = Database['public']['Tables']['habit_logs']['Row'];
