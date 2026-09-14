@@ -72,6 +72,11 @@ export interface Database {
         { id?: string; expense_id: string; user_id: string; amount_owed: number; is_settled?: boolean },
         { amount_owed?: number; is_settled?: boolean }
       >;
+      expense_payments: Table<
+        { id: string; expense_id: string; user_id: string; amount_paid: number },
+        { id?: string; expense_id: string; user_id: string; amount_paid: number },
+        { user_id?: string; amount_paid?: number }
+      >;
       habits: Table<
         { id: string; user_id: string; title: string; emoji: string | null; days_of_week: number[]; time: string | null; is_archived: boolean; created_at: string },
         { id?: string; user_id: string; title: string; emoji?: string | null; days_of_week: number[]; time?: string | null; is_archived?: boolean; created_at?: string },
@@ -99,6 +104,9 @@ export interface Database {
         Args: { p_id: string; p_description: string; p_amount: number; p_expense_date: string; p_category: string; p_custom_category_note: string | null; p_group_id: string | null; p_paid_by: string; p_split_type: ExpenseSplitType; p_splits: Json };
         Returns: Json;
       };
+      delete_finance_expense_v3: { Args: { p_expense_id: string }; Returns: boolean };
+      remove_group_member_v3: { Args: { p_group_id: string; p_user_id: string }; Returns: boolean };
+      set_expense_split_settled_v3: { Args: { p_expense_id: string; p_user_id: string; p_settled: boolean }; Returns: boolean };
     };
     Enums: { task_priority: TaskPriority };
     CompositeTypes: Record<string, never>;

@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { calculateUserBalance } from '@/hooks/useExpenses';
+import { calculateUserBalance, expenseErrorMessage } from '@/features/finance/domain';
+import { FinanceRepository } from '@/features/finance/repository';
 import { supabase } from '@/services/supabase';
-import type { Expense, ExpenseSplit, ExpenseWithSplits, Group, GroupMemberProfile, Profile } from '@/types/database';
+import type { Group, GroupMemberProfile, Profile } from '@/types/database';
 
 export type GroupBalance = { userId: string; owedToUser: number; userOwes: number; net: number };
+
+const repository = new FinanceRepository(supabase);
 
 export function useGroups() {
   const { user } = useAuth();
@@ -12,80 +15,71 @@ export function useGroups() {
   const [membersByGroup, setMembersByGroup] = useState<Record<string, GroupMemberProfile[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeUser = useRef(user?.id ?? '');
+  const requestVersion = useRef(0);
+
+  useLayoutEffect(() => {
+    activeUser.current = user?.id ?? '';
+    requestVersion.current += 1;
+  }, [user?.id]);
 
   const refresh = useCallback(async () => {
-    if (!user) { setGroups([]); setMembersByGroup({}); return; }
-    setLoading(true); setError(null);
+    const userId = user?.id ?? '';
+    const version = ++requestVersion.current;
+    const isCurrent = () => activeUser.current === userId && requestVersion.current === version;
+    if (!userId) {
+      setGroups([]);
+      setMembersByGroup({});
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
     try {
-      const { data: groupRows, error: groupsError } = await supabase.from('groups').select('*').order('created_at', { ascending: false });
-      if (groupsError) throw groupsError;
-      const nextGroups = groupRows ?? [];
-      setGroups(nextGroups);
-      if (nextGroups.length === 0) { setMembersByGroup({}); return; }
-      const ids = nextGroups.map((group) => group.id);
-      const { data: memberships, error: membersError } = await supabase.from('group_members').select('*').in('group_id', ids);
-      if (membersError) throw membersError;
-      const userIds = [...new Set((memberships ?? []).map((member) => member.user_id))];
-      const { data: profiles, error: profilesError } = userIds.length
-        ? await supabase.from('profiles').select('*').in('id', userIds)
-        : { data: [] as Profile[], error: null };
-      if (profilesError) throw profilesError;
-      const profileMap = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
-      const grouped: Record<string, GroupMemberProfile[]> = {};
-      for (const member of memberships ?? []) {
-        const profile = profileMap.get(member.user_id);
-        if (profile) grouped[member.group_id] = [...(grouped[member.group_id] ?? []), { ...member, profile }];
+      const directory = await repository.loadGroupDirectory();
+      if (isCurrent()) {
+        setGroups(directory.groups);
+        setMembersByGroup(directory.membersByGroup);
       }
-      setMembersByGroup(grouped);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to load groups.');
-    } finally { setLoading(false); }
-  }, [user]);
+      if (isCurrent()) setError(expenseErrorMessage(cause, 'Unable to load groups.'));
+    } finally {
+      if (isCurrent()) setLoading(false);
+    }
+  }, [user?.id]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    return () => { requestVersion.current += 1; };
+  }, [refresh]);
 
   const createGroup = useCallback(async (name: string) => {
     if (!user) throw new Error('Sign in to create a group.');
-    const trimmed = name.trim();
-    if (!trimmed) throw new Error('Give the group a name.');
-    const { data, error: createError } = await supabase.from('groups').insert({ name: trimmed, created_by: user.id }).select().single();
-    if (createError) throw createError;
+    const group = await repository.createGroup(name, user.id);
     await refresh();
-    return data;
+    return group;
   }, [user, refresh]);
 
-  const searchProfiles = useCallback(async (query: string) => {
-    const term = query.trim().replace(/[%_,()]/g, '');
-    if (term.length < 2) return [];
-    const { data, error: searchError } = await supabase.from('profiles').select('*')
-      .or(`username.ilike.%${term}%,email.ilike.%${term}%`).limit(12);
-    if (searchError) throw searchError;
-    return (data ?? []).filter((profile) => profile.id !== user?.id);
-  }, [user?.id]);
+  const searchProfiles = useCallback(
+    (query: string): Promise<Profile[]> => repository.searchProfiles(query, user?.id),
+    [user?.id],
+  );
 
   const addMember = useCallback(async (groupId: string, userId: string) => {
-    const { error: addError } = await supabase.from('group_members').insert({ group_id: groupId, user_id: userId });
-    if (addError && addError.code !== '23505') throw addError;
+    await repository.addGroupMember(groupId, userId);
     await refresh();
   }, [refresh]);
 
   const removeMember = useCallback(async (groupId: string, userId: string) => {
-    const { error: removeError } = await supabase.from('group_members').delete().eq('group_id', groupId).eq('user_id', userId);
-    if (removeError) throw removeError;
+    await repository.removeGroupMember(groupId, userId);
     await refresh();
   }, [refresh]);
 
   const getGroupBalances = useCallback(async (groupId: string): Promise<GroupBalance[]> => {
-    const { data: expenseRows, error: expensesError } = await supabase.from('expenses').select('*').eq('group_id', groupId);
-    if (expensesError) throw expensesError;
-    const typedExpenses = (expenseRows ?? []) as Expense[];
-    if (typedExpenses.length === 0) return (membersByGroup[groupId] ?? []).map((member) => ({ userId: member.user_id, owedToUser: 0, userOwes: 0, net: 0 }));
-    const { data: splitRows, error: splitsError } = await supabase.from('expense_splits').select('*').in('expense_id', typedExpenses.map((expense) => expense.id));
-    if (splitsError) throw splitsError;
-    const splits = (splitRows ?? []) as ExpenseSplit[];
-    const withSplits: ExpenseWithSplits[] = typedExpenses.map((expense) => ({ ...expense, splits: splits.filter((split) => split.expense_id === expense.id) }));
+    const expenses = await repository.listExpenses({ groupId });
     return (membersByGroup[groupId] ?? []).map((member) => {
-      const balance = calculateUserBalance(withSplits, member.user_id);
+      const balance = calculateUserBalance(expenses, member.user_id);
       return { userId: member.user_id, owedToUser: balance.owedToYou, userOwes: balance.youOwe, net: balance.net };
     });
   }, [membersByGroup]);

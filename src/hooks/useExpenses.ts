@@ -1,97 +1,25 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { randomUUID } from 'expo-crypto';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  buildCreateLedger,
+  buildUpdateLedger,
+  calculateExpenseTotal,
+  calculateSplitDistributions,
+  calculateUserBalance,
+  expenseErrorMessage,
+  type CreateExpenseInput,
+  type SplitDraft,
+  type UpdateExpenseInput,
+} from '@/features/finance/domain';
+import { FinanceRepository, type ExpenseFilters } from '@/features/finance/repository';
 import { supabase } from '@/services/supabase';
-import { saveExpenseLedger } from '@/services/personalExpenses';
-import { expenseErrorMessage, validateExpenseDetails } from '@/utils/expenseErrors';
-import type { Expense, ExpenseCategory, ExpenseSplit, ExpenseSplitType, ExpenseWithSplits } from '@/types/database';
+import type { ExpenseWithSplits } from '@/types/database';
 
-export type ExpenseFilters = {
-  startDate?: string;
-  endDate?: string;
-  groupId?: string;
-  personalOnly?: boolean;
-  groupOnly?: boolean;
-  search?: string;
-};
+export type { CreateExpenseInput, ExpenseFilters, SplitDraft, UpdateExpenseInput };
+export { calculateSplitDistributions, calculateUserBalance };
 
-export type SplitDraft = { userId: string; amount: number };
-export type CreateExpenseInput = {
-  requestId?: string;
-  description: string;
-  amount: number;
-  expenseDate: string;
-  groupId?: string | null;
-  paidBy?: string;
-  splitType?: ExpenseSplitType;
-  memberIds?: string[];
-  counterpartyId?: string;
-  customSplits?: SplitDraft[];
-  category?: ExpenseCategory;
-  customCategoryNote?: string | null;
-};
-export type UpdateExpenseInput = Partial<CreateExpenseInput>;
-
-const cents = (value: number) => Math.round(value * 100);
-const money = (value: number) => Math.round(value) / 100;
-
-export function calculateSplitDistributions(input: {
-  amount: number;
-  splitType: ExpenseSplitType;
-  currentUserId: string;
-  memberIds?: string[];
-  counterpartyId?: string;
-  customSplits?: SplitDraft[];
-}): SplitDraft[] {
-  const totalCents = cents(input.amount);
-  if (!Number.isFinite(totalCents) || totalCents <= 0) throw new Error('Amount must be greater than zero.');
-
-  if (input.splitType === 'personal') return [{ userId: input.currentUserId, amount: money(totalCents) }];
-  if (input.splitType === 'you_owed_full') {
-    if (!input.counterpartyId) throw new Error('Choose who owes this expense.');
-    return [{ userId: input.counterpartyId, amount: money(totalCents) }];
-  }
-  if (input.splitType === 'other_owed_full') return [{ userId: input.currentUserId, amount: money(totalCents) }];
-  if (input.splitType === 'custom') {
-    const splits = (input.customSplits ?? []).filter((split) => split.amount >= 0);
-    if (splits.length === 0 || splits.reduce((sum, split) => sum + cents(split.amount), 0) !== totalCents) {
-      throw new Error('Custom splits must add up to the expense total.');
-    }
-    return splits.map((split) => ({ ...split, amount: money(cents(split.amount)) }));
-  }
-
-  const members = [...new Set(input.memberIds ?? [])];
-  if (members.length === 0) throw new Error('This group has no members.');
-  const base = Math.floor(totalCents / members.length);
-  let remainder = totalCents - base * members.length;
-  return members.map((userId) => {
-    const share = base + (remainder > 0 ? 1 : 0);
-    remainder -= remainder > 0 ? 1 : 0;
-    return { userId, amount: money(share) };
-  });
-}
-
-async function attachSplits(expenses: Expense[]): Promise<ExpenseWithSplits[]> {
-  if (expenses.length === 0) return [];
-  const { data, error } = await supabase.from('expense_splits').select('*').in('expense_id', expenses.map((expense) => expense.id));
-  if (error) throw error;
-  const byExpense = new Map<string, ExpenseSplit[]>();
-  for (const split of data ?? []) byExpense.set(split.expense_id, [...(byExpense.get(split.expense_id) ?? []), split]);
-  return expenses.map((expense) => ({ ...expense, splits: byExpense.get(expense.id) ?? [] }));
-}
-
-export function calculateUserBalance(expenses: ExpenseWithSplits[], userId: string) {
-  let owedToYou = 0;
-  let youOwe = 0;
-  for (const expense of expenses) {
-    for (const split of expense.splits) {
-      if (split.is_settled || split.user_id === expense.paid_by) continue;
-      if (expense.paid_by === userId) owedToYou += Number(split.amount_owed);
-      if (split.user_id === userId) youOwe += Number(split.amount_owed);
-    }
-  }
-  return { owedToYou: money(cents(owedToYou)), youOwe: money(cents(youOwe)), net: money(cents(owedToYou - youOwe)) };
-}
+const repository = new FinanceRepository(supabase);
 
 export function useExpenses(filters: ExpenseFilters = {}) {
   const { user } = useAuth();
@@ -102,6 +30,7 @@ export function useExpenses(filters: ExpenseFilters = {}) {
   const scope = `${user?.id ?? ''}:${filterKey}`;
   const currentScope = useRef(scope);
   const requestVersion = useRef(0);
+
   useLayoutEffect(() => {
     currentScope.current = scope;
     requestVersion.current += 1;
@@ -111,24 +40,23 @@ export function useExpenses(filters: ExpenseFilters = {}) {
     if (currentScope.current !== scope) return;
     const version = ++requestVersion.current;
     const isCurrent = () => currentScope.current === scope && requestVersion.current === version;
-    if (!user) { setExpenses([]); setLoading(false); setError(null); return; }
-    setLoading(true); setError(null);
+    if (!user) {
+      setExpenses([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
     try {
-      let query = supabase.from('expenses').select('*').order('expense_date', { ascending: false }).order('created_at', { ascending: false });
-      if (filters.startDate) query = query.gte('expense_date', filters.startDate);
-      if (filters.endDate) query = query.lte('expense_date', filters.endDate);
-      if (filters.groupId) query = query.eq('group_id', filters.groupId);
-      else if (filters.personalOnly) query = query.is('group_id', null);
-      else if (filters.groupOnly) query = query.not('group_id', 'is', null);
-      if (filters.search?.trim()) query = query.ilike('description', `%${filters.search.trim()}%`);
-      const { data, error: queryError } = await query;
-      if (queryError) throw queryError;
-      const loaded = await attachSplits(data ?? []);
+      const loaded = await repository.listExpenses(filters);
       if (isCurrent()) setExpenses(loaded);
     } catch (cause) {
       if (isCurrent()) setError(expenseErrorMessage(cause, 'Unable to load expenses.'));
-    } finally { if (isCurrent()) setLoading(false); }
-  // filterKey deliberately stabilizes callers that pass an inline filter object.
+    } finally {
+      if (isCurrent()) setLoading(false);
+    }
+  // filterKey stabilizes callers that construct a filter object during render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, filterKey]);
 
@@ -140,68 +68,34 @@ export function useExpenses(filters: ExpenseFilters = {}) {
 
   const createExpense = useCallback(async (input: CreateExpenseInput) => {
     if (!user) throw new Error('Sign in to add an expense.');
-    const description = input.description.trim();
-    validateExpenseDetails(description, input.amount);
-    const splitType = input.groupId ? (input.splitType ?? 'split_equally') : 'personal';
-    const paidBy = !input.groupId ? user.id : splitType === 'other_owed_full'
-      ? input.counterpartyId
-      : splitType === 'you_owed_full' ? user.id : (input.paidBy ?? user.id);
-    if (!paidBy) throw new Error('Choose who paid.');
-    const category = input.category ?? 'Other'; const customCategoryNote = input.customCategoryNote?.trim() || null;
-    if (category === 'Other' && !customCategoryNote) throw new Error('Add a note for the Other category.');
-    const splits = calculateSplitDistributions({ ...input, splitType, currentUserId: user.id });
-    const expense = await saveExpenseLedger(supabase, {
-      id: input.requestId ?? randomUUID(), description, amount: input.amount,
-      expenseDate: input.expenseDate, category, customCategoryNote,
-      groupId: input.groupId ?? null, paidBy, splitType, splits,
-    });
+    const write = buildCreateLedger(input, user.id, input.requestId ?? randomUUID());
+    const saved = await repository.saveExpense(write);
     await refresh();
-    return expense;
+    return saved;
   }, [user, refresh]);
 
   const updateExpense = useCallback(async (expenseId: string, updates: UpdateExpenseInput) => {
     if (!user) throw new Error('Sign in to update an expense.');
     const existing = expenses.find((expense) => expense.id === expenseId);
     if (!existing) throw new Error('Expense not found.');
-    const groupId = updates.groupId === undefined ? existing.group_id : updates.groupId;
-    if (Boolean(existing.group_id) !== Boolean(groupId)) throw new Error('Create a new expense to move between personal and group expenses.');
-    const splitType = groupId ? (updates.splitType ?? existing.split_type) : 'personal';
-    const paidBy = splitType === 'you_owed_full' ? user.id
-      : splitType === 'other_owed_full' ? (updates.counterpartyId ?? existing.paid_by)
-      : (updates.paidBy ?? existing.paid_by ?? user.id);
-    const payload = {
-      description: updates.description?.trim() ?? existing.description,
-      amount: updates.amount ?? Number(existing.amount), expense_date: updates.expenseDate ?? existing.expense_date,
-      group_id: groupId ?? null, paid_by: paidBy, split_type: splitType,
-      category: updates.category ?? existing.category, custom_category_note: updates.customCategoryNote === undefined ? existing.custom_category_note : updates.customCategoryNote?.trim() || null,
-    };
-    validateExpenseDetails(payload.description, payload.amount);
-    if (payload.category === 'Other' && !payload.custom_category_note) throw new Error('Add a note for the Other category.');
-    const previousCounterparty = splitType === 'other_owed_full' ? existing.paid_by : existing.splits.find((split) => split.user_id !== user.id)?.user_id;
-    const shouldResplit = updates.amount !== undefined || updates.groupId !== undefined || updates.splitType !== undefined || updates.memberIds !== undefined || updates.counterpartyId !== undefined || updates.customSplits !== undefined;
-    const splits = shouldResplit ? calculateSplitDistributions({
-      amount: payload.amount, splitType, currentUserId: user.id,
-      memberIds: updates.memberIds ?? existing.splits.map((split) => split.user_id),
-      counterpartyId: updates.counterpartyId ?? previousCounterparty,
-      customSplits: updates.customSplits ?? existing.splits.map((split) => ({ userId: split.user_id, amount: Number(split.amount_owed) })),
-    }) : existing.splits.map((split) => ({ userId: split.user_id, amount: Number(split.amount_owed), isSettled: split.is_settled }));
-    await saveExpenseLedger(supabase, {
-      id: expenseId, description: payload.description, amount: payload.amount,
-      expenseDate: payload.expense_date, category: payload.category,
-      customCategoryNote: payload.custom_category_note, groupId: groupId ?? null,
-      paidBy, splitType, splits,
-    });
+    await repository.saveExpense(buildUpdateLedger(existing, updates, user.id));
     await refresh();
   }, [user, expenses, refresh]);
 
   const deleteExpense = useCallback(async (expenseId: string) => {
     setError(null);
-    const { error: deleteError } = await supabase.from('expenses').delete().eq('id', expenseId);
-    if (deleteError) { setError(deleteError.message); return; }
-    setExpenses((current) => current.filter((expense) => expense.id !== expenseId));
+    try {
+      await repository.deleteExpense(expenseId);
+      setExpenses((current) => current.filter((expense) => expense.id !== expenseId));
+    } catch (cause) {
+      setError(expenseErrorMessage(cause, 'Unable to delete expense.'));
+    }
   }, []);
 
-  const balance = useMemo(() => user ? calculateUserBalance(expenses, user.id) : { owedToYou: 0, youOwe: 0, net: 0 }, [expenses, user]);
-  const total = useMemo(() => money(cents(expenses.reduce((sum, expense) => sum + Number(expense.amount), 0))), [expenses]);
+  const balance = useMemo(
+    () => user ? calculateUserBalance(expenses, user.id) : { owedToYou: 0, youOwe: 0, net: 0 },
+    [expenses, user],
+  );
+  const total = useMemo(() => calculateExpenseTotal(expenses), [expenses]);
   return { expenses, loading, error, total, balance, refresh, createExpense, updateExpense, deleteExpense };
 }

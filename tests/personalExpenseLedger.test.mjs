@@ -6,6 +6,7 @@ import { PGlite } from '../artifacts/finance-test-runtime/node_modules/@electric
 
 const alice = '11111111-1111-4111-8111-111111111111';
 const bob = '22222222-2222-4222-8222-222222222222';
+const carol = '77777777-7777-4777-8777-777777777777';
 const id = '33333333-3333-4333-8333-333333333333';
 const failedId = '44444444-4444-4444-8444-444444444444';
 const groupId = '55555555-5555-4555-8555-555555555555';
@@ -21,7 +22,7 @@ test('personal ledger saves atomically, retries safely, and enforces ownership',
       create function auth.uid() returns uuid language sql stable as
         $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
       create table public.profiles (id uuid primary key, username text);
-      insert into profiles values ('${alice}', 'alice'), ('${bob}', 'bob');
+      insert into profiles values ('${alice}', 'alice'), ('${bob}', 'bob'), ('${carol}', 'carol');
     `);
     await db.exec(await readFile(new URL('../supabase/migrations/003_finance_schema.sql', import.meta.url), 'utf8'));
     const iteration4 = await readFile(new URL('../supabase/migrations/004_iteration_four.sql', import.meta.url), 'utf8');
@@ -33,6 +34,9 @@ test('personal ledger saves atomically, retries safely, and enforces ownership',
     const atomicLedgerMigration = await readFile(new URL('../supabase/migrations/007_atomic_expense_ledger.sql', import.meta.url), 'utf8');
     await db.exec(atomicLedgerMigration);
     await db.exec(atomicLedgerMigration);
+    const financeCoreMigration = await readFile(new URL('../supabase/migrations/008_finance_core.sql', import.meta.url), 'utf8');
+    await db.exec(financeCoreMigration);
+    await db.exec(financeCoreMigration);
     await db.exec(`
       create function public.check_test_ledger() returns trigger language plpgsql as $$
       declare eid uuid; expected numeric; paid numeric; owed numeric;
@@ -112,7 +116,7 @@ test('personal ledger saves atomically, retries safely, and enforces ownership',
     assert.equal(Number((await ledger()).paid), 10);
 
     await db.exec(`insert into groups (id, name, created_by) values ('${groupId}', 'Trip', '${alice}');
-      insert into group_members (group_id, user_id) values ('${groupId}', '${bob}');
+      insert into group_members (group_id, user_id) values ('${groupId}', '${bob}'), ('${groupId}', '${carol}');
       select set_config('request.jwt.claim.sub', '${alice}', false); set role authenticated`);
     const saveGroup = () => db.query(
       'select save_expense_ledger_v2($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) as expense',
@@ -132,12 +136,21 @@ test('personal ledger saves atomically, retries safely, and enforces ownership',
       assert.equal((await db.query(`select count(*)::int as count from ${table} where ${table === 'expenses' ? 'id' : 'expense_id'}='${groupExpenseId}'`)).rows[0].count, 1);
     }
     assert.equal((await db.query(`select count(*)::int as count from expense_splits where expense_id='${groupExpenseId}'`)).rows[0].count, 2);
+    await db.exec(`select set_config('request.jwt.claim.sub', '${alice}', false); set role authenticated`);
+    await assert.rejects(db.query('select remove_group_member_v3($1,$2)', [groupId, bob]), /expense history/);
+    assert.equal((await db.query('select remove_group_member_v3($1,$2) as removed', [groupId, carol])).rows[0].removed, true);
+    await db.exec(`reset role; select set_config('request.jwt.claim.sub', '${bob}', false); set role authenticated`);
+    await assert.rejects(db.query('select delete_finance_expense_v3($1)', [id]), /cannot be deleted/);
+    assert.equal((await db.query('select set_expense_split_settled_v3($1,$2,$3) as settled', [groupExpenseId, bob, true])).rows[0].settled, true);
+    await db.exec('reset role');
+    assert.equal((await db.query(`select count(*)::int as count from group_members where group_id='${groupId}' and user_id='${carol}'`)).rows[0].count, 0);
     await db.exec(`select set_config('request.jwt.claim.sub', '${bob}', false); set role authenticated`);
     await assert.rejects(db.query('select save_expense_ledger_v2($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
       [failedId, 'Bad member', 10, '2026-09-11', 'Food', null, groupId, bob, 'split_equally', JSON.stringify([{ user_id: failedId, amount: 10 }])]), /group member/);
-    await db.exec('reset role');
+    await db.exec(`reset role; select set_config('request.jwt.claim.sub', '${alice}', false); set role authenticated`);
     // A single expense delete cascades both sides of the ledger.
-    await db.exec(`delete from expenses where id='${id}'`);
+    assert.equal((await db.query('select delete_finance_expense_v3($1) as deleted', [id])).rows[0].deleted, true);
+    await db.exec('reset role');
     for (const table of ['expenses', 'expense_payments', 'expense_splits']) {
       const ownerColumn = table === 'expenses' ? 'id' : 'expense_id';
       assert.equal((await db.query(`select count(*)::int as count from ${table} where ${ownerColumn}='${id}'`)).rows[0].count, 0);

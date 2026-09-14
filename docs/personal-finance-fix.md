@@ -4,7 +4,7 @@ The deployed database has `expense_payments` and balance validation absent from 
 
 ## Apply
 
-Run `supabase/migrations/006_personal_expense_ledger.sql` and then `supabase/migrations/007_atomic_expense_ledger.sql` in the project's Supabase SQL editor, then deploy/rebuild the updated app. Apply earlier migrations first on a new database. Migration 006 preserves existing ledger triggers and group functions, creates the payment table only if absent, and adds an authenticated personal-save RPC. Migration 007 extends the same atomic ledger write to shared expenses. Neither migration rewrites existing expense records.
+Run migrations 006, 007, and `008_finance_core.sql` in order in the project's Supabase SQL editor, then deploy/rebuild the updated app. Apply earlier migrations first on a new database. Migration 006 creates the payment ledger and personal-save RPC. Migration 007 extends the atomic ledger write to shared expenses. Migration 008 adds authorized lifecycle operations, payment visibility, settlement, and safe group-member removal. The migrations do not rewrite existing expenses.
 
 The RPCs authenticate the caller, verify personal ownership or group membership, and write the expense, payment, and every owed share in one transaction. They use a stable expense ID for retries and serialize concurrent writes to that ID. Any failure rolls back all ledger rows. Personal and shared edits use the same transaction; deleting an expense uses the existing cascading foreign keys.
 
