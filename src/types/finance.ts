@@ -3,7 +3,15 @@ export type IsoDate = string;
 export type IsoTimestamp = string;
 export type Paise = bigint;
 
-export const FINANCE_CATEGORIES = ['Food', 'Online shopping', 'Investments', 'Other'] as const;
+export const FINANCE_CATEGORIES = [
+  'Food',
+  'Online shopping',
+  'Investments',
+  'Laundry',
+  'Drinks',
+  'Grocery',
+  'Other',
+] as const;
 export type FinanceCategory = (typeof FINANCE_CATEGORIES)[number];
 export type FinanceExpenseStatus = 'active' | 'archived' | 'superseded';
 export type FinanceMemberRole = 'owner' | 'member';

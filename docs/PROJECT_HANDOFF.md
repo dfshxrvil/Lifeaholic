@@ -38,7 +38,7 @@ The recent conversation compared sideloading tools, then narrowed to iPhone plus
 | Focus analytics | Native and web dashboards. The route loads real Supabase sessions from the start of the month five months ago through the current month. A mock-data file exists but no import was found in the source search. |
 | Calendar | Google Calendar connection, event listing/creation/editing/deletion, month/day selection, time-slot scheduling interactions, and selected-day tasks. |
 | Habits | Calendar tab includes recurring weekday habits, optional time and emoji, completion logs, streak calculations, editing/deletion, and Google/device-calendar synchronization paths. |
-| Finance | Clean-slate integer-paise participant ledger with personal/group expenses, immutable edits, archives, invitations, rosters, balances, settlements, monthly filtering, pagination and search. |
+| Finance | Clean-slate integer-paise participant ledger with personal/group expenses, immutable edits, archives, invitations, rosters, balances, settlements, monthly filtering, pagination, search and an interactive monthly analytics sheet. |
 | Notes | Search, folders, Quick Notes, list/grid views, rich-text editing, pinning, checklists, attachments, PIN/password gate, move-to-folder, trash, restore and permanent deletion. |
 | Journal | Shares the Notes tab through a segment switch. Chronological entries grouped by date, prompts/moments, bookmarks, mood/location/media fields and composer. Multiple entries per day are supported. |
 | Settings | Light, high-contrast dark, black/yellow and custom colors; two D-Day event slots; profile theme save; sign-out. Home and the shared widget snapshot currently use D-Day slot 1. |
@@ -56,12 +56,12 @@ Declared dependencies: Expo SDK 57 (`~57.0.16`), React Native `0.86.2`, React `1
 | `app/(tabs)/` | Six tab routes. Finance and Notes delegate to `src/screens`. |
 | `src/screens/` | Finance and combined Notes/Journal screen implementations. |
 | `src/components/` | Feature UI, forms, editors, charts, navigation, modals and widget sync provider. |
-| `src/hooks/` | Task/habit/note/journal state and operations. Finance hooks have been removed. |
+| `src/hooks/` | Task/habit/note/journal state and operations, plus finance queries and mutations. |
 | `src/services/` | Supabase client, task/focus/note/journal/habit services, calendars, widget bridges and local change events. |
 | `src/contexts/` | Auth, calendar connection, theme and modal state. |
 | `src/constants/theme.ts` | Color palettes, priority colors/labels, typography, spacing and motion constants. |
 | `src/types/database.ts` | TypeScript database contract; update when changing schema. |
-| `supabase/migrations/` | Five ordered SQL migrations defining tables, policies, triggers and functions. |
+| `supabase/migrations/` | Ordered SQL migrations defining tables, policies, triggers and functions. |
 | `native-widgets/`, `native-modules/ios/` | Canonical custom Swift widgets and bridge source used by the iOS setup plugin. |
 | `ios/` | Committed Xcode workspace, app, generated extension and CocoaPods files. |
 | `android/` | Committed Android project including Kotlin widget providers, action receiver, storage and headless service. |
@@ -88,6 +88,8 @@ Migration progression:
 4. `004_iteration_four.sql`: original task dates/rollover, habits/logs, richer notes/journal fields and two D-Day slots.
 5. `005_habit_emoji.sql`: habit emoji field.
 6. `009_remove_finance_backend.sql`: permanently removes the former finance tables, data, functions, and profile discovery policy from existing databases. Finance migrations 006–008 have been removed.
+7. `010_rebuild_finance.sql`: rebuilds finance from first principles as an integer-paise participant ledger behind strict RLS and transactional RPCs.
+8. `011_add_finance_categories.sql`: expands the finance category constraint with Laundry, Drinks and Grocery; it is safe to rerun.
 
 Migrations include row-level security and a private attachments bucket with user-scoped policies. This review did not query a live database or verify that any migration was applied remotely. Existing installations need only their unapplied migrations; do not blindly rerun every SQL file because some policy creation statements are not idempotent.
 
@@ -145,7 +147,7 @@ These are source observations or follow-up candidates, not claims that each has 
 - **Calendar session lifecycle:** persistence and renewal are now implemented and unit-tested. Verify real-device consent, force-close/reopen, token expiry and revocation handling.
 - **Note locking:** the PIN is salted and hashed, but note content remains stored as text/HTML. The current UI gate is not encrypted note storage.
 - **Attachment longevity:** upload stores signed URLs valid for one year; a renewal strategy is not visible in the upload service.
-- **Finance deployment:** migrations 009 and 010 must be applied in order to an existing hosted database before the rebuilt finance UI can perform live operations.
+- **Finance deployment:** migrations 009, 010 and 011 must be applied in order to an existing hosted database before the rebuilt finance UI can perform live operations with all seven categories.
 - **Widget reconciliation:** test user switching, stale snapshots, interrupted acknowledgement and duplicate focus-session replay. Saving a focus session inserts a new row before action acknowledgement; no action-ID deduplication is visible there.
 - **Offline scope:** widget queues preserve some actions, but normal app data operations generally depend on Supabase. Do not describe the whole app as offline-ready without further work.
 - **Validation coverage:** a focused Calendar session test file was added in this update. Wider UI/integration coverage remains absent; native/device behavior needs separate checks.

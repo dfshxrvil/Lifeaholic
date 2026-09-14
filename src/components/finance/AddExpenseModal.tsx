@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { allocateEqualShares, buildSinglePayerParticipants, paiseToRupeeInput, parseRupeesToPaise } from '@/domain/finance';
 import { useExpenseMutations, useGroupRoster } from '@/hooks/finance/useFinance';
+import { FINANCE_CATEGORIES } from '@/types/finance';
 import type { FinanceCategory, FinanceExpense, FinanceGroup, FinanceId } from '@/types/finance';
 import { toDateKey } from '@/utils/dates';
 
@@ -21,7 +22,7 @@ const rules: { value: SplitRule; label: string; hint: string }[] = [
   { value: 'you_owed_full', label: 'You’re Owed Full', hint: 'One member owes you' },
   { value: 'other_owed_full', label: 'You Owe Full', hint: 'Another member paid for you' },
 ];
-const categories: FinanceCategory[] = ['Food', 'Online shopping', 'Investments', 'Other'];
+const categories: readonly FinanceCategory[] = FINANCE_CATEGORIES;
 const addDays = (key: string, amount: number) => { const date = new Date(`${key}T12:00:00`); date.setDate(date.getDate() + amount); return toDateKey(date); };
 
 export function AddExpenseModal({ visible, groups, expense, onClose, onSaved }: Props) {
