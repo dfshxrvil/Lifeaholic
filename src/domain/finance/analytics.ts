@@ -18,6 +18,19 @@ export interface FinanceCategoryBreakdown {
   transactionCount: number;
 }
 
+export interface FinanceCategoryPieSlice {
+  category: FinanceCategory;
+  amountMinor: Paise;
+  percentage: bigint;
+  shareBasisPoints: bigint;
+  transactionCount: number;
+}
+
+export interface FinanceCategoryPieBreakdown {
+  totalMonthlySpendMinor: Paise;
+  slices: FinanceCategoryPieSlice[];
+}
+
 export interface FinanceDailySpend {
   day: number;
   amountMinor: Paise;
@@ -120,6 +133,19 @@ export function getCategoryBreakdown(expenses: readonly FinanceExpense[], userId
       shareBasisPoints: total === 0n ? 0n : (entry.amountMinor * 10_000n + total / 2n) / total,
     };
   });
+}
+
+export function calculateCategoryPieBreakdown(expenses: readonly FinanceExpense[], userId?: FinanceId): FinanceCategoryPieBreakdown {
+  const categories = getCategoryBreakdown(expenses, userId);
+  const totalMonthlySpendMinor = categories.reduce((sum, entry) => sum + entry.amountMinor, 0n);
+  return {
+    totalMonthlySpendMinor,
+    slices: categories.map((entry) => ({
+      ...entry,
+      percentage: totalMonthlySpendMinor === 0n ? 0n : (entry.amountMinor * 100n) / totalMonthlySpendMinor,
+      shareBasisPoints: totalMonthlySpendMinor === 0n ? 0n : (entry.amountMinor * 10_000n) / totalMonthlySpendMinor,
+    })),
+  };
 }
 
 export function getDailySpendSeries(expenses: readonly FinanceExpense[], daysInMonth: number, userId?: FinanceId): FinanceDailySpend[] {

@@ -2,6 +2,7 @@ import { BarChart3, Minus, TrendingDown, TrendingUp, X } from 'lucide-react-nati
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Line, Rect, Text as SvgText } from 'react-native-svg';
+import { CategoryPieChart } from '@/components/finance/CategoryPieChart';
 import { AnimatedPressable } from '@/components/ui/AnimatedPressable';
 import { AppModal } from '@/components/ui/AppModal';
 import { SlidingSegmentedControl } from '@/components/ui/SlidingSegmentedControl';
@@ -14,16 +15,6 @@ import type { FinanceAnalyticsScope } from '@/hooks/finance/useFinanceAnalytics'
 import type { FinanceCategory, FinanceId } from '@/types/finance';
 
 type AnalyticsTab = 'overview' | 'categories' | 'trends';
-
-const CATEGORY_COLORS: Record<FinanceCategory, string> = {
-  Food: '#FF9F0A',
-  'Online shopping': '#AF52DE',
-  Investments: '#30D158',
-  Laundry: '#64D2FF',
-  Drinks: '#FF375F',
-  Grocery: '#34C759',
-  Other: '#8E8E93',
-};
 
 function formatBasisPoints(value: bigint): string {
   const sign = value > 0n ? '+' : value < 0n ? '−' : '';
@@ -98,14 +89,7 @@ export function AnalyticsModal({
 
   const categories = <View style={styles.sectionStack}>
     <Text style={[styles.sectionIntro, { color: colors.textMuted }]}>Tap a category to inspect its transactions.</Text>
-    {analytics.categories.map((entry) => {
-      const selected = entry.category === selectedCategory;
-      const categoryColor = CATEGORY_COLORS[entry.category];
-      return <AnimatedPressable key={entry.category} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => setSelectedCategory(entry.category)} style={[styles.categoryCard, { backgroundColor: selected ? colors.accentSoft : colors.card, borderColor: selected ? colors.accent : colors.border }]}>
-        <View style={styles.categoryHeader}><View style={styles.categoryName}><View style={[styles.dot, { backgroundColor: categoryColor }]} /><Text style={[styles.rowTitle, { color: colors.text }]}>{entry.category}</Text></View><View style={styles.categoryValue}><Text style={[styles.rowAmount, { color: colors.text }]}>{formatPaiseAsInr(entry.amountMinor)}</Text><Text style={[styles.percent, { color: colors.textMuted }]}>{formatBasisPoints(entry.shareBasisPoints).replace('+', '')}</Text></View></View>
-        <View style={[styles.progressTrack, { backgroundColor: colors.input }]}><View style={[styles.progressFill, { backgroundColor: categoryColor, width: `${basisPointsToPercent(entry.shareBasisPoints)}%` }]} /></View>
-      </AnimatedPressable>;
-    })}
+    <CategoryPieChart expenses={analytics.expenses} userId={scope === 'group' ? user?.id : undefined} selectedCategory={selectedCategory} onSelectCategory={setSelectedCategory} />
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}><Text style={[styles.cardTitle, { color: colors.text }]}>{selectedCategory} transactions</Text>{categoryExpenses.length ? categoryExpenses.map((expense) => <View key={expense.id} style={styles.compactRow}><View style={styles.rowMain}><Text numberOfLines={1} style={[styles.rowTitle, { color: colors.text }]}>{expense.description}</Text><Text style={[styles.rowMeta, { color: colors.textMuted }]}>{expense.expenseDate}</Text></View><Text style={[styles.rowAmount, { color: colors.text }]}>{formatPaiseAsInr(amountFor(expense))}</Text></View>) : <Text style={[styles.emptyText, { color: colors.textMuted }]}>No {selectedCategory.toLowerCase()} expenses this month.</Text>}</View>
   </View>;
 
@@ -175,13 +159,6 @@ const styles = StyleSheet.create({
   rowAmount: { fontSize: 12, fontWeight: '800' },
   emptyText: { fontSize: 11, lineHeight: 16 },
   sectionIntro: { fontSize: 10, lineHeight: 15 },
-  categoryCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 14, padding: 12 },
-  categoryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  categoryName: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  categoryValue: { alignItems: 'flex-end' },
-  percent: { fontSize: 9, marginTop: 1 },
-  progressTrack: { height: 6, borderRadius: 3, marginTop: 9, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 3 },
   compactRow: { minHeight: 39, flexDirection: 'row', alignItems: 'center', gap: 10 },
   chartWrap: { height: 190, marginTop: 2, overflow: 'hidden' },
   dayDetail: { minHeight: 57, borderRadius: 13, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

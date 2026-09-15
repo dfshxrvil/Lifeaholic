@@ -51,6 +51,37 @@ test('category breakdown includes all seven categories and preserves exact share
   assert.equal(result.find((entry) => entry.category === 'Drinks').amountMinor, 0n);
 });
 
+test('pie breakdown uses bigint totals and whole-percent division for all seven categories', () => {
+  const result = analytics.calculateCategoryPieBreakdown([
+    expense({ totalAmountMinor: 1_000n }),
+    expense({ id: 'grocery', totalAmountMinor: 3_000n, category: 'Grocery' }),
+  ]);
+  assert.equal(result.totalMonthlySpendMinor, 4_000n);
+  assert.equal(result.slices.length, 7);
+  assert.equal(result.slices.find((entry) => entry.category === 'Food').percentage, 25n);
+  assert.equal(result.slices.find((entry) => entry.category === 'Grocery').percentage, 75n);
+  assert.equal(result.slices.find((entry) => entry.category === 'Drinks').percentage, 0n);
+});
+
+test('pie breakdown uses the authenticated user owed share and handles zero totals', () => {
+  const group = expense({
+    groupId: 'group-1',
+    totalAmountMinor: 3_000n,
+    category: 'Drinks',
+    participants: [
+      { userId: 'alice', amountPaidMinor: 3_000n, amountOwedMinor: 1_000n },
+      { userId: 'bob', amountPaidMinor: 0n, amountOwedMinor: 2_000n },
+    ],
+  });
+  const alice = analytics.calculateCategoryPieBreakdown([group], 'alice');
+  assert.equal(alice.totalMonthlySpendMinor, 1_000n);
+  assert.equal(alice.slices.find((entry) => entry.category === 'Drinks').amountMinor, 1_000n);
+  assert.equal(alice.slices.find((entry) => entry.category === 'Drinks').percentage, 100n);
+  const empty = analytics.calculateCategoryPieBreakdown([], 'alice');
+  assert.equal(empty.totalMonthlySpendMinor, 0n);
+  assert.ok(empty.slices.every((entry) => entry.percentage === 0n && entry.shareBasisPoints === 0n));
+});
+
 test('group analytics counts the signed-in user owed share rather than the whole group bill', () => {
   const group = expense({
     groupId: 'group-1',
