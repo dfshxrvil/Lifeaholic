@@ -17,10 +17,24 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { formatPaiseAsInr } from '@/domain/finance';
 import { useCombinedGroupBalances, useExpenseMutations, useFinanceExpenses, useFinanceGroups, useGroupBalances } from '@/hooks/finance/useFinance';
+import type { FinanceErrorDetails } from '@/repositories/financeRepository';
 import type { FinanceExpense } from '@/types/finance';
 import { toDateKey } from '@/utils/dates';
 
 type Mode = 'personal' | 'group';
+
+function formatDebugError(label: string, error: FinanceErrorDetails | null): string | null {
+  if (!error) return null;
+  return [
+    label,
+    `Operation: ${error.operation ?? '(unknown)'}`,
+    `Code: ${error.code ?? '(none)'}`,
+    `Message: ${error.message}`,
+    `Details: ${error.details ?? '(none)'}`,
+    `Hint: ${error.hint ?? '(none)'}`,
+    `Retryable: ${String(error.retryable)}`,
+  ].join('\n');
+}
 
 export function FinanceScreen() {
   const router = useRouter(); const { compose } = useLocalSearchParams<{ compose?: string }>(); const { colors, theme } = useTheme(); const { user } = useAuth();
@@ -33,6 +47,11 @@ export function FinanceScreen() {
   const selectedBalances = useGroupBalances(mode === 'group' ? groupId : null);
   const combinedBalances = useCombinedGroupBalances(mode === 'group' && !groupId ? groupsQuery.groups.map((group) => group.id) : []);
   const expenseMutation = useExpenseMutations(); const balance = groupId ? selectedBalances.balances : combinedBalances.balances;
+  const fetchDebugErrors = [
+    formatDebugError('EXPENSE FETCH ERROR', expenses.errorDetails),
+    formatDebugError('GROUP FETCH ERROR', groupsQuery.errorDetails),
+    formatDebugError('EXPENSE MUTATION ERROR', expenseMutation.errorDetails),
+  ].filter((value): value is string => Boolean(value));
 
   useEffect(() => { if (compose === 'expense') { setAnalyticsOpen(false); setGroupsOpen(false); setEditing(null); setAddOpen(true); router.setParams({ compose: undefined }); } }, [compose, router]);
   useEffect(() => { if (groupId && !groupsQuery.groups.some((group) => group.id === groupId)) setGroupId(null); }, [groupId, groupsQuery.groups]);
@@ -61,6 +80,7 @@ export function FinanceScreen() {
     {mode === 'group' && <FlatList horizontal data={[{ id: '', name: 'All groups' }, ...groupsQuery.groups]} keyExtractor={(item) => item.id || 'all'} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters} renderItem={({ item }) => <AnimatedPressable onPress={() => setGroupId(item.id || null)} style={[styles.filterChip, { backgroundColor: (groupId ?? '') === item.id ? colors.accentSoft : colors.card, borderColor: (groupId ?? '') === item.id ? colors.accent : colors.border }]}><Text style={[styles.filterText, { color: colors.text }]}>{item.name}</Text></AnimatedPressable>} />}
     <View style={[styles.search, { backgroundColor: colors.card, borderColor: colors.border }]}><Search size={17} color={colors.textMuted} /><TextInput accessibilityLabel="Search expenses" value={search} onChangeText={setSearch} placeholder="Search this month" placeholderTextColor={colors.textMuted} style={[styles.searchInput, { color: colors.text }]} /></View>
     <View style={styles.listHeader}><Text style={[styles.listTitle, { color: colors.text }]}>Recent transactions</Text><Text style={[styles.listCount, { color: colors.textMuted }]}>{expenses.expenses.length} entries</Text></View>
+    {fetchDebugErrors.map((message) => <View key={message} style={[styles.debugErrorBox, { backgroundColor: '#3A1010', borderColor: colors.danger }]}><Text selectable style={styles.debugErrorText}>{message}</Text></View>)}
     {expenses.loading && !expenses.expenses.length ? <ActivityIndicator color={colors.accent} style={styles.loader} /> : <FlatList data={expenses.expenses} keyExtractor={(item) => item.id} renderItem={renderExpense} contentContainerStyle={[styles.list, !expenses.expenses.length && styles.emptyList]} onEndReached={() => void expenses.loadMore()} onEndReachedThreshold={0.4} refreshControl={<RefreshControl refreshing={expenses.loading} onRefresh={() => void expenses.refresh()} tintColor={colors.accent} />} ListFooterComponent={expenses.loadingMore ? <ActivityIndicator color={colors.accent} /> : null} ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: colors.text }]}>{search.trim() ? 'No matching expenses.' : 'Nothing logged here yet.'}</Text><Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>{search.trim() ? 'Try a different search.' : 'Tap + to add the first expense.'}</Text></View>} />}
     {(expenses.error || expenseMutation.error || groupsQuery.error) && <Text style={[styles.error, { color: colors.danger }]}>{expenses.error || expenseMutation.error || groupsQuery.error}</Text>}
     <AnimatedPressable accessibilityLabel="Open financial analytics" onPress={() => setAnalyticsOpen(true)} style={[styles.analyticsFab, { bottom: actionBottom, backgroundColor: colors.cardElevated, borderColor: colors.accent }]}><BarChart3 size={19} color={colors.accent} /><Text style={[styles.analyticsFabText, { color: colors.text }]}>Analytics</Text></AnimatedPressable>
@@ -75,4 +95,6 @@ const styles = StyleSheet.create({
   screen: { paddingTop: 16, paddingBottom: 96, gap: 12 }, header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, title: { fontFamily: typography.display, fontSize: 29, fontWeight: '800' }, subtitle: { fontSize: 12, marginTop: 1 }, manage: { width: 50, height: 44, borderWidth: StyleSheet.hairlineWidth, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 1 }, monthRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, monthButton: { padding: 10 }, summary: { minHeight: 102, borderWidth: StyleSheet.hairlineWidth, borderRadius: 19, padding: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 4 }, summaryLight: { shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 0 }, summaryLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1 }, summaryAmount: { fontSize: 34, fontWeight: '700', marginTop: 3 }, summaryNote: { fontSize: 12, fontWeight: '700' }, balanceBreakdown: { alignItems: 'flex-end', gap: 4 }, owed: { fontSize: 11, fontWeight: '700' }, owe: { fontSize: 11, fontWeight: '700' }, filters: { gap: 7 }, filterChip: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 7 }, filterText: { fontSize: 10, fontWeight: '700' }, search: { minHeight: 43, borderWidth: StyleSheet.hairlineWidth, borderRadius: 13, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }, searchInput: { flex: 1, fontSize: 13 }, listHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }, listTitle: { fontSize: 15, fontWeight: '700' }, listCount: { fontSize: 10, fontWeight: '700' }, list: { gap: 7, paddingBottom: 80 }, emptyList: { flexGrow: 1 }, transaction: { minHeight: 74, borderWidth: StyleSheet.hairlineWidth, borderRadius: 15, padding: 9, flexDirection: 'row', alignItems: 'center', gap: 9 }, transactionDateBlock: { width: 48, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }, transactionMain: { flex: 1, minWidth: 0 }, transactionDate: { fontSize: 10, fontWeight: '800' }, transactionTitle: { fontSize: 13, fontWeight: '700' }, transactionMeta: { fontSize: 9, marginTop: 3 }, amountColumn: { alignItems: 'flex-end' }, transactionAmount: { fontSize: 14, fontWeight: '800' }, share: { fontSize: 8, marginTop: 3 }, delete: { padding: 3 }, swipeDelete: { width: 82, marginLeft: 6, borderRadius: 15, alignItems: 'center', justifyContent: 'center', gap: 3 }, swipeText: { color: '#FFF', fontSize: 10, fontWeight: '700' }, empty: { flex: 1, alignItems: 'center', justifyContent: 'center' }, emptyTitle: { fontFamily: typography.display, fontSize: 22, fontWeight: '700' }, emptySubtitle: { fontSize: 11 }, loader: { marginTop: 40 }, error: { position: 'absolute', bottom: 87, left: 20, fontSize: 11, fontWeight: '700' }, fab: { position: 'absolute', right: 22, bottom: 100, width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
   analyticsFab: { position: 'absolute', left: 22, minHeight: 46, borderRadius: 23, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 5 },
   analyticsFabText: { fontSize: 11, fontWeight: '800' },
+  debugErrorBox: { borderWidth: 1, borderRadius: 12, padding: 12, marginVertical: 6 },
+  debugErrorText: { color: '#FFB4B4', fontSize: 11, lineHeight: 17, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
 });
