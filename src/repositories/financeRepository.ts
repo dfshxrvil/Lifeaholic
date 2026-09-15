@@ -165,6 +165,7 @@ function parseExpense(value: unknown): FinanceExpense {
       category: literal(row.category, FINANCE_CATEGORIES, 'expense.category'),
       customCategoryNote: nullableString(row.customCategoryNote, 'expense.customCategoryNote'),
       expenseDate: date(row.expenseDate, 'expense.expenseDate'),
+      transactionTimestamp: row.transactionTimestamp == null ? null : timestamp(row.transactionTimestamp, 'expense.transactionTimestamp'),
       createdBy: id(row.createdBy, 'expense.createdBy'),
       createdAt: timestamp(row.createdAt, 'expense.createdAt'),
       status: literal<FinanceExpenseStatus>(row.status, ['active', 'archived', 'superseded'], 'expense.status'),
@@ -272,6 +273,14 @@ function serializeExpense(input: FinanceExpenseDraft): Record<string, unknown> {
   if (!UUID.test(input.idempotencyKey)) throw new FinanceRepositoryError('A valid expense idempotency key is required.', { code: 'FINANCE_INPUT' });
   if (!DATE.test(input.expenseDate)) throw new FinanceRepositoryError('A valid expense date is required.', { code: 'FINANCE_INPUT' });
   if (!categories.has(input.category)) throw new FinanceRepositoryError('A valid expense category is required.', { code: 'FINANCE_INPUT' });
+  let transactionTimestamp: string | undefined;
+  if (input.transactionTimestamp !== undefined) {
+    const value = new Date(input.transactionTimestamp);
+    if (!/(Z|[+-]\d{2}:\d{2})$/.test(input.transactionTimestamp) || !Number.isFinite(value.getTime()) || value.getTime() > Date.now()) {
+      throw new FinanceRepositoryError('Choose a valid date and time that is not in the future.', { code: 'FINANCE_INPUT' });
+    }
+    transactionTimestamp = value.toISOString();
+  }
   return {
     idempotencyKey: input.idempotencyKey,
     groupId: input.groupId,
@@ -280,6 +289,7 @@ function serializeExpense(input: FinanceExpenseDraft): Record<string, unknown> {
     category: input.category,
     customCategoryNote: input.customCategoryNote?.trim() || null,
     expenseDate: input.expenseDate,
+    ...(transactionTimestamp === undefined ? {} : { transactionTimestamp }),
     participants: input.participants.map((participant) => ({
       userId: participant.userId,
       amountPaidMinor: assertPaise(participant.amountPaidMinor, { allowZero: true }).toString(),

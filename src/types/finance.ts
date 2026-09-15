@@ -71,6 +71,7 @@ export interface FinanceExpense {
   category: FinanceCategory;
   customCategoryNote: string | null;
   expenseDate: IsoDate;
+  transactionTimestamp: IsoTimestamp | null;
   createdBy: FinanceId;
   createdAt: IsoTimestamp;
   status: FinanceExpenseStatus;
@@ -85,6 +86,7 @@ export interface FinanceExpenseDraft {
   category: FinanceCategory;
   customCategoryNote: string | null;
   expenseDate: IsoDate;
+  transactionTimestamp?: IsoTimestamp;
   participants: FinanceExpenseParticipant[];
 }
 
