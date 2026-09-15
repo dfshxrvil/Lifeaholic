@@ -62,7 +62,9 @@ export function formatPaiseDecimal(value: bigint | number, locale = 'en-IN'): st
   const absolute = paise < 0n ? -paise : paise;
   const whole = absolute / 100n;
   const fraction = (absolute % 100n).toString().padStart(2, '0');
-  return `${paise < 0n ? '−' : ''}${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(whole)}.${fraction}`;
+  // MAX_FINANCE_PAISE keeps whole rupees below Number.MAX_SAFE_INTEGER. Passing
+  // a bigint directly into Intl can throw in Hermes even though desktop engines accept it.
+  return `${paise < 0n ? '−' : ''}${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(Number(whole))}.${fraction}`;
 }
 
 export function formatPaiseAsInr(value: bigint | number, locale = 'en-IN'): string {

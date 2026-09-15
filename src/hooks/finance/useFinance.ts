@@ -24,8 +24,8 @@ function useAuthBoundary(userId: string | undefined) {
   return dataUserId === userId;
 }
 
-function useRefreshSubscription(refresh: () => void) {
-  useEffect(() => subscribeToFinanceChanges(refresh), [refresh]);
+function useRefreshSubscription(refresh: () => Promise<void>) {
+  useEffect(() => subscribeToFinanceChanges(() => { void refresh(); }), [refresh]);
 }
 
 export function useFinanceGroups() {
@@ -52,7 +52,7 @@ export function useFinanceGroups() {
   }, [user?.id]);
 
   useEffect(() => { setGroups([]); setInvitations([]); setError(null); void refresh(); return () => { version.current += 1; }; }, [refresh]);
-  useRefreshSubscription(() => { void refresh(); });
+  useRefreshSubscription(refresh);
   return { groups: currentAuth ? groups : [], invitations: currentAuth ? invitations : [], loading, error: currentAuth ? error : null, refresh };
 }
 
@@ -72,7 +72,7 @@ export function useGroupRoster(groupId: FinanceId | null | undefined) {
     finally { if (request === version.current) setLoading(false); }
   }, [groupId, user?.id]);
   useEffect(() => { setMembers([]); setError(null); void refresh(); return () => { version.current += 1; }; }, [refresh]);
-  useRefreshSubscription(() => { void refresh(); });
+  useRefreshSubscription(refresh);
   return { members: currentAuth ? members : [], loading, error: currentAuth ? error : null, refresh };
 }
 
@@ -124,7 +124,7 @@ export function useFinanceExpenses(filters: FinanceExpenseFilters) {
     setExpenses([]); setTotalAmountMinor(0n); setNextCursor(null); setError(null); void refresh();
     return () => { version.current += 1; };
   }, [refresh]);
-  useRefreshSubscription(() => { void refresh(); });
+  useRefreshSubscription(refresh);
   return { expenses: currentAuth ? expenses : [], totalAmountMinor: currentAuth ? totalAmountMinor : 0n, nextCursor: currentAuth ? nextCursor : null, loading, loadingMore, error: currentAuth ? error : null, refresh, loadMore };
 }
 
@@ -144,7 +144,7 @@ export function useGroupBalances(groupId: FinanceId | null | undefined) {
     finally { if (request === version.current) setLoading(false); }
   }, [groupId, user?.id]);
   useEffect(() => { setBalances(null); setError(null); void refresh(); return () => { version.current += 1; }; }, [refresh]);
-  useRefreshSubscription(() => { void refresh(); });
+  useRefreshSubscription(refresh);
   return { balances: currentAuth ? balances : null, loading, error: currentAuth ? error : null, refresh };
 }
 
@@ -172,7 +172,7 @@ export function useCombinedGroupBalances(groupIds: readonly FinanceId[]) {
     finally { if (request === version.current) setLoading(false); }
   }, [key, user?.id]);
   useEffect(() => { setBalances(null); void refresh(); return () => { version.current += 1; }; }, [refresh]);
-  useRefreshSubscription(() => { void refresh(); });
+  useRefreshSubscription(refresh);
   return { balances: currentAuth ? balances : null, loading, refresh };
 }
 

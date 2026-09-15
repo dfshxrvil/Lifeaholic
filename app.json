@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lifeaholic",
     "slug": "lifeaholic",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "scheme": "lifeaholic",
     "icon": "./assets/images/lifeaholic-icon.png",
@@ -11,11 +11,11 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.example.lifeaholic",
       "appleTeamId": "83DT3G3QY6",
-      "buildNumber": "3"
+      "buildNumber": "4"
     },
     "android": {
       "package": "com.example.lifeaholic",
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/lifeaholic-adaptive-icon.png",
         "backgroundColor": "#09090B"

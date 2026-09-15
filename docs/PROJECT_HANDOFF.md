@@ -142,7 +142,7 @@ These are source observations or follow-up candidates, not claims that each has 
 
 - **Outdated README:** says existing projects need only migration 002 despite the current code requiring later schema; describes demo usability although unauthenticated users are redirected to login and login requires configured Supabase.
 - **Native dependency reproducibility:** the last commit works around a stale Podfile.lock during each build. Review a successful build's resolved lock and commit the intended dependency state before tightening installs again.
-- **Release provenance:** distinguish older/newer IPA files with build number, source SHA, build time and nonsecret configuration metadata. App/package versions still say 1.0.0.
+- **Release provenance:** distinguish older/newer IPA files with build number, source SHA, build time and nonsecret configuration metadata. The crash-fix release is app version 1.1.1 with iOS build 4 and Android version code 4; `package.json` remains an internal package version.
 - **Device/backend verification:** confirm actual installed build, login, applied migrations, attachments, Google OAuth return, and widget entitlement behavior.
 - **Calendar session lifecycle:** persistence and renewal are now implemented and unit-tested. Verify real-device consent, force-close/reopen, token expiry and revocation handling.
 - **Note locking:** the PIN is salted and hashed, but note content remains stored as text/HTML. The current UI gate is not encrypted note storage.
