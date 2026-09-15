@@ -37,20 +37,45 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const categories = new Set<string>(FINANCE_CATEGORIES);
 
 export class FinanceRepositoryError extends Error {
+  readonly operation?: string;
   readonly code?: string;
   readonly details?: string;
   readonly hint?: string;
   readonly retryable: boolean;
 
-  constructor(message: string, options: { code?: string; details?: string; hint?: string; retryable?: boolean; cause?: unknown } = {}) {
+  constructor(message: string, options: { operation?: string; code?: string; details?: string; hint?: string; retryable?: boolean; cause?: unknown } = {}) {
     super(message);
     this.name = 'FinanceRepositoryError';
+    this.operation = options.operation;
     this.code = options.code;
     this.details = options.details;
     this.hint = options.hint;
     this.retryable = options.retryable ?? false;
     if (options.cause !== undefined) (this as Error & { cause?: unknown }).cause = options.cause;
   }
+}
+
+export interface FinanceErrorDetails {
+  message: string;
+  operation?: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+  retryable: boolean;
+}
+
+export function getFinanceErrorDetails(cause: unknown, fallback = 'The finance request failed.'): FinanceErrorDetails {
+  if (cause instanceof FinanceRepositoryError) {
+    return {
+      message: cause.message,
+      operation: cause.operation,
+      code: cause.code,
+      details: cause.details,
+      hint: cause.hint,
+      retryable: cause.retryable,
+    };
+  }
+  return { message: cause instanceof Error ? cause.message : fallback, retryable: false };
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -66,6 +91,12 @@ function array(value: unknown, label: string): unknown[] {
 function string(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.length) throw contractError(`${label} must be a non-empty string.`);
   return value;
+}
+
+function integerText(value: unknown, label: string): string {
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
+  throw contractError(`${label} must be a decimal string or safe integer.`);
 }
 
 function nullableString(value: unknown, label: string): string | null {
@@ -109,33 +140,50 @@ function parseParticipant(value: unknown): FinanceExpenseParticipant {
   const row = record(value, 'participant');
   return {
     userId: id(row.userId, 'participant.userId'),
-    amountPaidMinor: assertPaise(string(row.amountPaidMinor, 'participant.amountPaidMinor'), { allowZero: true }),
-    amountOwedMinor: assertPaise(string(row.amountOwedMinor, 'participant.amountOwedMinor'), { allowZero: true }),
+    amountPaidMinor: assertPaise(integerText(row.amountPaidMinor, 'participant.amountPaidMinor'), { allowZero: true }),
+    amountOwedMinor: assertPaise(integerText(row.amountOwedMinor, 'participant.amountOwedMinor'), { allowZero: true }),
   };
 }
 
 function parseExpense(value: unknown): FinanceExpense {
-  const row = record(value, 'expense');
-  const participants = array(row.participants, 'expense.participants').map(parseParticipant);
-  const totalAmountMinor = assertPaise(string(row.totalAmountMinor, 'expense.totalAmountMinor'));
-  assertParticipantLedger(totalAmountMinor, participants);
-  return {
-    id: id(row.id, 'expense.id'),
-    logicalExpenseId: id(row.logicalExpenseId, 'expense.logicalExpenseId'),
-    revision: integer(row.revision, 'expense.revision'),
-    supersedesExpenseId: row.supersedesExpenseId === null ? null : id(row.supersedesExpenseId, 'expense.supersedesExpenseId'),
-    groupId: row.groupId === null ? null : id(row.groupId, 'expense.groupId'),
-    description: string(row.description, 'expense.description'),
-    totalAmountMinor,
-    currencyCode: literal(row.currencyCode, ['INR'], 'expense.currencyCode'),
-    category: literal(row.category, FINANCE_CATEGORIES, 'expense.category'),
-    customCategoryNote: nullableString(row.customCategoryNote, 'expense.customCategoryNote'),
-    expenseDate: date(row.expenseDate, 'expense.expenseDate'),
-    createdBy: id(row.createdBy, 'expense.createdBy'),
-    createdAt: timestamp(row.createdAt, 'expense.createdAt'),
-    status: literal<FinanceExpenseStatus>(row.status, ['active', 'archived', 'superseded'], 'expense.status'),
-    participants,
-  };
+  const candidate = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  const expenseReference = typeof candidate?.id === 'string' ? candidate.id : 'unknown';
+  try {
+    const row = record(value, 'expense');
+    const participants = array(row.participants, 'expense.participants').map(parseParticipant);
+    const totalAmountMinor = assertPaise(integerText(row.totalAmountMinor, 'expense.totalAmountMinor'));
+    assertParticipantLedger(totalAmountMinor, participants);
+    return {
+      id: id(row.id, 'expense.id'),
+      logicalExpenseId: id(row.logicalExpenseId, 'expense.logicalExpenseId'),
+      revision: integer(row.revision, 'expense.revision'),
+      supersedesExpenseId: row.supersedesExpenseId === null ? null : id(row.supersedesExpenseId, 'expense.supersedesExpenseId'),
+      groupId: row.groupId === null ? null : id(row.groupId, 'expense.groupId'),
+      description: string(row.description, 'expense.description'),
+      totalAmountMinor,
+      currencyCode: literal(row.currencyCode, ['INR'], 'expense.currencyCode'),
+      category: literal(row.category, FINANCE_CATEGORIES, 'expense.category'),
+      customCategoryNote: nullableString(row.customCategoryNote, 'expense.customCategoryNote'),
+      expenseDate: date(row.expenseDate, 'expense.expenseDate'),
+      createdBy: id(row.createdBy, 'expense.createdBy'),
+      createdAt: timestamp(row.createdAt, 'expense.createdAt'),
+      status: literal<FinanceExpenseStatus>(row.status, ['active', 'archived', 'superseded'], 'expense.status'),
+      participants,
+    };
+  } catch (cause) {
+    if (cause instanceof FinanceRepositoryError && cause.code === 'FINANCE_CONTRACT') {
+      throw new FinanceRepositoryError(`${cause.message} Expense: ${expenseReference}.`, {
+        code: cause.code,
+        retryable: false,
+        cause,
+      });
+    }
+    throw new FinanceRepositoryError(`Invalid finance server response: expense ${expenseReference} failed ledger validation.`, {
+      code: 'FINANCE_CONTRACT',
+      retryable: false,
+      cause,
+    });
+  }
 }
 
 function parseGroup(value: unknown): FinanceGroup {
@@ -240,13 +288,14 @@ function serializeExpense(input: FinanceExpenseDraft): Record<string, unknown> {
   };
 }
 
-function mapRpcError(error: RpcError): FinanceRepositoryError {
+function mapRpcError(error: RpcError, operation: string): FinanceRepositoryError {
   const friendly = error.code === '42501' ? 'You do not have permission to perform this finance action.'
     : error.code === '23505' ? 'This request conflicts with an operation that was already submitted.'
       : error.code === '23514' || error.code === '22023' ? error.message
         : error.code === 'PGRST202' ? 'The finance database migration is not available on this server.'
           : error.message || 'The finance request failed.';
   return new FinanceRepositoryError(friendly, {
+    operation,
     code: error.code,
     details: error.details,
     hint: error.hint,
@@ -263,11 +312,34 @@ export class FinanceRepository {
     try {
       result = await this.client.rpc(name, args);
     } catch (cause) {
-      throw new FinanceRepositoryError('Unable to reach the finance service.', { code: 'FINANCE_NETWORK', retryable: true, cause });
+      throw new FinanceRepositoryError('Unable to reach the finance service.', { operation: name, code: 'FINANCE_NETWORK', retryable: true, cause });
     }
-    if (result.error) throw mapRpcError(result.error);
-    if (result.data === null || result.data === undefined) throw contractError(`${name} returned no data.`);
+    if (result.error) throw mapRpcError(result.error, name);
+    if (result.data === null || result.data === undefined) throw new FinanceRepositoryError(`Invalid finance server response: ${name} returned no data.`, { operation: name, code: 'FINANCE_CONTRACT' });
     return result.data;
+  }
+
+  private parse<T>(operation: string, value: unknown, parser: (response: unknown) => T): T {
+    try {
+      return parser(value);
+    } catch (cause) {
+      if (cause instanceof FinanceRepositoryError) {
+        throw new FinanceRepositoryError(cause.message, {
+          operation,
+          code: cause.code,
+          details: cause.details,
+          hint: cause.hint,
+          retryable: cause.retryable,
+          cause,
+        });
+      }
+      throw new FinanceRepositoryError(`Invalid finance server response from ${operation}.`, {
+        operation,
+        code: 'FINANCE_CONTRACT',
+        retryable: false,
+        cause,
+      });
+    }
   }
 
   async createGroup(name: string, idempotencyKey: FinanceId): Promise<FinanceGroup> {
@@ -322,24 +394,29 @@ export class FinanceRepository {
   }
 
   async createExpense(input: FinanceExpenseDraft): Promise<FinanceExpense> {
-    return parseExpense(await this.call('finance_create_expense', { p_payload: serializeExpense(input) }));
+    const operation = 'finance_create_expense';
+    return this.parse(operation, await this.call(operation, { p_payload: serializeExpense(input) }), parseExpense);
   }
 
   async editExpense(expenseId: FinanceId, input: FinanceExpenseDraft): Promise<FinanceExpense> {
-    return parseExpense(await this.call('finance_edit_expense', { p_expense_id: expenseId, p_payload: serializeExpense(input) }));
+    const operation = 'finance_edit_expense';
+    return this.parse(operation, await this.call(operation, { p_expense_id: expenseId, p_payload: serializeExpense(input) }), parseExpense);
   }
 
   async archiveExpense(expenseId: FinanceId, idempotencyKey: FinanceId): Promise<FinanceExpense> {
-    return parseExpense(await this.call('finance_archive_expense', { p_expense_id: expenseId, p_idempotency_key: idempotencyKey }));
+    const operation = 'finance_archive_expense';
+    return this.parse(operation, await this.call(operation, { p_expense_id: expenseId, p_idempotency_key: idempotencyKey }), parseExpense);
   }
 
   async getExpense(expenseId: FinanceId): Promise<FinanceExpense> {
-    return parseExpense(await this.call('finance_get_expense', { p_expense_id: expenseId }));
+    const operation = 'finance_get_expense';
+    return this.parse(operation, await this.call(operation, { p_expense_id: expenseId }), parseExpense);
   }
 
   async listExpenses(filters: FinanceExpenseFilters): Promise<FinanceExpensePage> {
     const cursor: FinanceExpenseCursor | null = filters.cursor ?? null;
-    const row = record(await this.call('finance_list_expenses', {
+    const operation = 'finance_list_expenses';
+    const response = await this.call(operation, {
       p_scope: filters.scope,
       p_month_start: filters.monthStart,
       p_group_id: filters.groupId ?? null,
@@ -348,17 +425,27 @@ export class FinanceRepository {
       p_cursor_created_at: cursor?.createdAt ?? null,
       p_cursor_id: cursor?.id ?? null,
       p_limit: filters.limit ?? 30,
-    }), 'expense page');
-    const next = row.nextCursor === null ? null : record(row.nextCursor, 'expense cursor');
-    return {
-      entries: array(row.entries, 'expense entries').map(parseExpense),
-      totalAmountMinor: assertPaise(string(row.totalAmountMinor, 'expense page.totalAmountMinor'), { allowZero: true }),
-      nextCursor: next ? {
-        expenseDate: date(next.expenseDate, 'expense cursor.expenseDate'),
-        createdAt: timestamp(next.createdAt, 'expense cursor.createdAt'),
-        id: id(next.id, 'expense cursor.id'),
-      } : null,
-    };
+    });
+    return this.parse(operation, response, (value) => {
+      const row = record(value, 'expense page');
+      const next = row.nextCursor === null ? null : record(row.nextCursor, 'expense cursor');
+      const entries = array(row.entries, 'expense entries').map((entry, index) => {
+        try { return parseExpense(entry); }
+        catch (cause) {
+          if (cause instanceof FinanceRepositoryError) throw new FinanceRepositoryError(`${cause.message} Page entry: ${index}.`, { code: cause.code, cause });
+          throw cause;
+        }
+      });
+      return {
+        entries,
+        totalAmountMinor: assertPaise(integerText(row.totalAmountMinor, 'expense page.totalAmountMinor'), { allowZero: true }),
+        nextCursor: next ? {
+          expenseDate: date(next.expenseDate, 'expense cursor.expenseDate'),
+          createdAt: timestamp(next.createdAt, 'expense cursor.createdAt'),
+          id: id(next.id, 'expense cursor.id'),
+        } : null,
+      };
+    });
   }
 
   async getGroupBalances(groupId: FinanceId): Promise<FinanceGroupBalances> {

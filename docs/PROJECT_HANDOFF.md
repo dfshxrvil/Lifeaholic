@@ -90,6 +90,9 @@ Migration progression:
 6. `009_remove_finance_backend.sql`: permanently removes the former finance tables, data, functions, and profile discovery policy from existing databases. Finance migrations 006–008 have been removed.
 7. `010_rebuild_finance.sql`: rebuilds finance from first principles as an integer-paise participant ledger behind strict RLS and transactional RPCs.
 8. `011_add_finance_categories.sql`: expands the finance category constraint with Laundry, Drinks and Grocery; it is safe to rerun.
+9. `012_finance_rpc_contract_hardening.sql`: pins expense and settlement JSON to camel-case keys with paise encoded as decimal strings, adds correct `limit + 1` expense pagination, restores authenticated RPC grants, and reloads PostgREST's schema cache. It is safe to rerun after migration 010.
+
+The finance repository accepts safe-integer JSON numbers only as a compatibility fallback; canonical RPC responses remain decimal strings. Finance errors retain the RPC operation, PostgreSQL/PostgREST code, details and hint. Development logs include safe request metadata and ledger sums without descriptions, emails, credentials or complete payloads. Group expense submission waits for the roster and revalidates active members before calling the atomic RPC.
 
 Migrations include row-level security and a private attachments bucket with user-scoped policies. This review did not query a live database or verify that any migration was applied remotely. Existing installations need only their unapplied migrations; do not blindly rerun every SQL file because some policy creation statements are not idempotent.
 
