@@ -26,7 +26,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22 (Native WebSocket Support)
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -34,12 +34,12 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Build Expo Web Export
+      - name: Build Client-Side Web App
         env:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
         run: |
-          npx expo export -p web
+          npx expo export --platform web
           cp dist/index.html dist/404.html || true
 
       - name: Setup Pages
@@ -53,4 +53,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-        
