@@ -27,7 +27,12 @@
       "favicon": "./assets/images/lifeaholic-icon.png"
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "output": "single"
+        }
+      ],
       "expo-secure-store",
       "expo-font",
       [
