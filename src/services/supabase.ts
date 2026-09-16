@@ -18,5 +18,11 @@ export const supabase = createClient<Database>(
       persistSession: isSupabaseConfigured,
       detectSessionInUrl: false,
     },
+    realtime: {
+      webSocketConstructor:
+        typeof window !== 'undefined' && 'WebSocket' in window
+          ? window.WebSocket
+          : undefined,
+    },
   },
 );
