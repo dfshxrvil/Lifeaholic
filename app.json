@@ -27,12 +27,7 @@
       "favicon": "./assets/images/lifeaholic-icon.png"
     },
     "plugins": [
-      [
-        "expo-router",
-        {
-          "output": "single"
-        }
-      ],
+      "expo-router",
       "expo-secure-store",
       "expo-font",
       [
@@ -98,7 +93,8 @@
       "@react-native-community/datetimepicker"
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "baseUrl": "/Lifeaholic"
     }
   }
 }
