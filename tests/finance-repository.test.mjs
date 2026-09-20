@@ -86,6 +86,32 @@ test('createExpense serializes bigint paise and new categories as the canonical 
   assert.equal(call.args.p_payload.category, 'Laundry');
 });
 
+test('create and edit serialize local-offset transaction times to UTC and preserve returned precision', async () => {
+  const calls = [];
+  const repository = new FinanceRepository({ rpc: async (name, args) => {
+    calls.push({ name, args });
+    return { data: { ...expenseResponse(), transactionTimestamp: args.p_payload.transactionTimestamp }, error: null };
+  } });
+  const draft = {
+    idempotencyKey: KEY, groupId: null, description: 'Late snack', totalAmountMinor: 1050n,
+    category: 'Food', customCategoryNote: null, expenseDate: '2024-02-29',
+    transactionTimestamp: '2024-02-29T00:05:32.123+05:30',
+    participants: [{ userId: USER_ID, amountPaidMinor: 1050n, amountOwedMinor: 1050n }],
+  };
+  const expected = '2024-02-28T18:35:32.123Z';
+  assert.equal((await repository.createExpense(draft)).transactionTimestamp, expected);
+  assert.equal((await repository.editExpense(EXPENSE_ID, draft)).transactionTimestamp, expected);
+  assert.deepEqual(calls.map(call => call.name), ['finance_create_expense', 'finance_edit_expense']);
+  for (const call of calls) {
+    assert.equal(call.args.p_payload.transactionTimestamp, expected);
+    assert.equal(call.args.p_payload.expenseDate, '2024-02-29');
+  }
+  for (const invalid of ['invalid', '2024-02-29T12:00:00', new Date(Date.now() + 86400000).toISOString()]) {
+    await assert.rejects(repository.createExpense({ ...draft, transactionTimestamp: invalid }), error => error.code === 'FINANCE_INPUT');
+  }
+  assert.equal(calls.length, 2);
+});
+
 test('contract and RPC failures retain the operation, expense ID, code, details, and hint', async () => {
   const malformed = { ...expenseResponse(), totalAmountMinor: 1.5 };
   const malformedRepository = new FinanceRepository({ rpc: async () => ({ data: { entries: [malformed], totalAmountMinor: '1050', nextCursor: null }, error: null }) });
