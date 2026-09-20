@@ -11,6 +11,7 @@ import type { Habit } from '@/types/database';
 
 WebBrowser.maybeCompleteAuthSession();
 const NATIVE_REDIRECT_URI = 'com.example.lifeaholic:/oauthredirect';
+const WEB_REDIRECT_PATH = 'Lifeaholic/';
 const isGoogleClientId = (value?: string) => Boolean(value && /^\d+-[a-z0-9_-]+\.apps\.googleusercontent\.com$/i.test(value));
 type EventInput = { title: string; start: Date; end: Date; description?: string };
 type CalendarContextValue = {
@@ -41,7 +42,9 @@ export function CalendarProvider({ children }: PropsWithChildren) {
     default: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
   });
   const clientId = isGoogleClientId(configuredClientId) ? configuredClientId : undefined;
-  const redirectUri = Platform.OS === 'web' ? AuthSession.makeRedirectUri() : NATIVE_REDIRECT_URI;
+  const redirectUri = Platform.OS === 'web'
+    ? AuthSession.makeRedirectUri({ path: WEB_REDIRECT_PATH })
+    : NATIVE_REDIRECT_URI;
   const [connected, setConnected] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [events, setEvents] = useState<GoogleCalendarEvent[]>([]);
