@@ -78,7 +78,7 @@ export function WidgetSyncProvider({ children }: PropsWithChildren) {
         .map((event) => ({ id: event.id, title: event.title || 'Untitled event', startAt: event.start.getTime() / 1000, endAt: event.end.getTime() / 1000 }));
 
       await updateWidgetContent({
-        tasks: tasks.filter((task) => !task.is_completed).slice(0, 32).map((task) => ({
+        tasks: tasks.filter((task) => !task.is_completed).slice(0, 64).map((task) => ({
           id: task.id, title: task.title.trim() || 'Untitled task', priority: task.priority, isCompleted: false,
         })),
         dDay: dDay && target && !Number.isNaN(target.getTime()) ? {

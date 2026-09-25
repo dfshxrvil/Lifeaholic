@@ -1,6 +1,6 @@
 import { BlurView } from 'expo-blur';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Check, ListChecks, Plus, Trash2, X } from 'lucide-react-native';
+import { Stack, useLocalSearchParams } from 'expo-router';
+import { Check, ChevronLeft, ListChecks, Plus, Trash2, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,15 +12,16 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { saveNote, uploadAttachment } from '@/services/notes';
 import type { ChecklistItem, NoteAttachment } from '@/types/database';
+import { useSafeBack } from '@/utils/navigation';
 
 export default function NewNoteScreen() {
-  const router = useRouter(); const params = useLocalSearchParams<{ folderId?: string }>(); const { user } = useAuth(); const { colors, theme } = useTheme(); const insets = useSafeAreaInsets();
+  const safeBack = useSafeBack(); const params = useLocalSearchParams<{ folderId?: string }>(); const { user } = useAuth(); const { colors, theme } = useTheme(); const insets = useSafeAreaInsets();
   const [title, setTitle] = useState(''); const [content, setContent] = useState(''); const [checks, setChecks] = useState<ChecklistItem[]>([]); const [newCheck, setNewCheck] = useState(''); const [attachments, setAttachments] = useState<NoteAttachment[]>([]); const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null);
   const folderId = typeof params.folderId === 'string' && params.folderId ? params.folderId : null;
-  const save = async () => { if (!user) return; setSaving(true); setError(null); try { await saveNote(user.id, { folderId, title: title.trim() || 'New Note', content, checklistData: checks, attachments }); router.back(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save note.'); } finally { setSaving(false); } };
+  const save = async () => { if (!user) return; setSaving(true); setError(null); try { await saveNote(user.id, { folderId, title: title.trim() || 'New Note', content, checklistData: checks, attachments }); safeBack(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save note.'); } finally { setSaving(false); } };
   const addCheck = () => { if (!newCheck.trim()) return; setChecks((current) => [...current, { id: `${Date.now()}`, text: newCheck.trim(), isCompleted: false }]); setNewCheck(''); };
   return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.screen, { backgroundColor: colors.background }]} keyboardVerticalOffset={90}>
-    <Stack.Screen options={{ title: folderId ? 'New Folder Note' : 'New Note' }} />
+    <Stack.Screen options={{ title: folderId ? 'New Folder Note' : 'New Note', headerLeft: () => <AnimatedPressable accessibilityRole="button" accessibilityLabel="Back to Notes" onPress={safeBack} hitSlop={10}><ChevronLeft color={colors.text} /></AnimatedPressable> }} />
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.canvas, { paddingBottom: 118 + insets.bottom }]}>
       <Text style={[styles.date, { color: colors.textMuted }]}>{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</Text>
       <TextInput accessibilityLabel="Note title" value={title} onChangeText={setTitle} autoFocus placeholder="A title for this thought" placeholderTextColor={colors.textMuted} style={[styles.title, { color: colors.text }]} />

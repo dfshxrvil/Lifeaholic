@@ -18,7 +18,7 @@ function safeSnapshot(value?: Partial<LifeaholicWidgetSnapshot>): LifeaholicWidg
   return {
     version: 1,
     updatedAt: Number.isFinite(value?.updatedAt) ? value!.updatedAt! : Date.now() / 1000,
-    tasks: Array.isArray(value?.tasks) ? value.tasks.slice(0, 32) : [],
+    tasks: Array.isArray(value?.tasks) ? value.tasks.slice(0, 64) : [],
     dDay: value?.dDay,
     events: Array.isArray(value?.events) ? value.events.slice(0, 16) : [],
     subjects: Array.isArray(value?.subjects) ? value.subjects.slice(0, 12) : [],

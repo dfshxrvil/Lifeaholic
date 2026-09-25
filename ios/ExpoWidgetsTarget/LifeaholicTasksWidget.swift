@@ -155,7 +155,7 @@ private enum LifeaholicSharedStore {
     snapshot.updatedAt = Date().timeIntervalSince1970
     // Bound extension-owned queues and collections to stay well below WidgetKit memory limits.
     snapshot.pendingActions = Array(snapshot.pendingActions.suffix(64))
-    snapshot.tasks = Array(snapshot.tasks.prefix(32))
+    snapshot.tasks = Array(snapshot.tasks.prefix(64))
     snapshot.events = Array(snapshot.events.prefix(16))
     snapshot.subjects = Array(snapshot.subjects.prefix(12))
     save(snapshot)
@@ -493,27 +493,27 @@ private struct MatrixQuadrant: View {
   let color: Color
   let tasks: [WidgetTask]
   var body: some View {
-    VStack(alignment: .leading, spacing: 5) {
-      HStack(spacing: 5) {
-        Circle().fill(color).frame(width: 7, height: 7)
-        Text(title).font(.system(size: 10, weight: .bold)).lineLimit(1).foregroundStyle(LifeaholicWidgetConstants.primary)
+    VStack(alignment: .leading, spacing: 2) {
+      HStack(spacing: 3) {
+        Circle().fill(color).frame(width: 5, height: 5)
+        Text(title).font(.system(size: 8, weight: .bold)).lineLimit(1).minimumScaleFactor(0.7).foregroundStyle(LifeaholicWidgetConstants.primary)
         Spacer(minLength: 0)
         Text("\(tasks.count)").font(.caption2.bold()).foregroundStyle(LifeaholicWidgetConstants.secondary)
       }
-      ForEach(Array(tasks.prefix(3).enumerated()), id: \.element.id) { index, task in
-        HStack(spacing: 5) {
-          Text("\(index + 1).").font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(color).frame(width: 14, alignment: .trailing)
+      ForEach(Array(tasks.prefix(7).enumerated()), id: \.element.id) { index, task in
+        HStack(spacing: 3) {
+          Text("\(index + 1).").font(.system(size: 7, weight: .bold, design: .rounded))
+            .foregroundStyle(color).frame(width: 10, alignment: .trailing)
           Link(destination: appURL("matrix?taskId=\(task.id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? task.id)")) {
-            Text(task.title).font(.system(size: 10, weight: .medium)).lineLimit(1)
+            Text(task.title).font(.caption2).fontWeight(.medium).lineLimit(1).minimumScaleFactor(0.72)
               .foregroundStyle(LifeaholicWidgetConstants.primary).frame(maxWidth: .infinity, alignment: .leading)
           }
         }
       }
       if tasks.isEmpty { Spacer(minLength: 0) }
     }
-    .padding(9).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .liquidTile(cornerRadius: 15)
+    .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .liquidTile(cornerRadius: 12)
   }
 }
 
@@ -521,22 +521,22 @@ private struct MatrixWidgetView: View {
   let entry: LifeaholicEntry
   private func tasks(_ priority: String) -> [WidgetTask] { entry.snapshot.tasks.filter { $0.priority == priority } }
   var body: some View {
-    VStack(spacing: 7) {
+    VStack(spacing: 5) {
       HStack {
-        Text("Eisenhower Matrix").font(.system(.headline, design: .rounded, weight: .bold)).foregroundStyle(LifeaholicWidgetConstants.primary)
+        Text("Eisenhower Matrix").font(.system(size: 14, weight: .bold, design: .rounded)).foregroundStyle(LifeaholicWidgetConstants.primary)
         Spacer()
         Image(systemName: "square.grid.2x2").foregroundStyle(LifeaholicWidgetConstants.yellow)
       }
-      HStack(spacing: 7) {
+      HStack(spacing: 5) {
         MatrixQuadrant(title: "Urgent · Important", color: .red, tasks: tasks("red"))
         MatrixQuadrant(title: "Important", color: .yellow, tasks: tasks("yellow"))
       }
-      HStack(spacing: 7) {
+      HStack(spacing: 5) {
         MatrixQuadrant(title: "Urgent", color: .blue, tasks: tasks("blue"))
         MatrixQuadrant(title: "Later", color: .green, tasks: tasks("green"))
       }
     }
-    .padding(11).frame(maxWidth: .infinity, maxHeight: .infinity)
+    .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity)
     .widgetURL(appURL("matrix"))
     .liquidWidgetContainer()
   }

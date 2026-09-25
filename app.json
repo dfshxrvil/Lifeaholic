@@ -16,6 +16,9 @@
     "android": {
       "package": "com.example.lifeaholic",
       "versionCode": 4,
+      "permissions": [
+        "android.permission.SCHEDULE_EXACT_ALARM"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/lifeaholic-adaptive-icon.png",
         "backgroundColor": "#09090B"
@@ -28,6 +31,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-notifications",
       "expo-secure-store",
       "expo-font",
       [
