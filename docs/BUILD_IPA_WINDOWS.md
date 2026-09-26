@@ -1,6 +1,6 @@
 # Build an IPA on GitHub for Sideloadly
 
-The `Build Sideloadly IPA` workflow uses GitHub's macOS runner to compile a
+The `Build iPhone IPA (Sideloadly)` workflow uses GitHub's macOS runner to compile a
 Release iPhone app from the committed iOS workspace. It includes the JavaScript
 bundle and widget extension. No Expo login or Apple signing credentials are
 needed for the build. Sideloadly signs the downloaded IPA during installation.
@@ -19,16 +19,19 @@ needed for the build. Sideloadly signs the downloaded IPA during installation.
    `EXPO_PUBLIC_` values are embedded in the app. Do not commit `.env`.
    Without these settings the app builds in its existing demo/configuration mode;
    authentication and remote data need the appropriate values.
-3. Open **Actions > Build Sideloadly IPA > Run workflow**, select `main`, and run.
+3. Open **Actions > Build iPhone IPA (Sideloadly) > Run workflow**, select the
+   branch containing the app version you want, choose artifact retention, and run.
 4. When the build succeeds, open that run and download the
    **Lifeaholic-sideloadly** artifact at the bottom of the page.
 5. Extract the downloaded ZIP to get `Lifeaholic-sideloadly.ipa`.
 6. Open Sideloadly on Windows, connect and select your iPhone, select the IPA,
    enter your Apple ID in Sideloadly, and start installation.
 
-The workflow runs only when manually requested. GitHub Actions availability and
-any usage charges depend on the repository and account plan. Artifacts expire
-after seven days; download the IPA before then.
+The workflow runs only when manually requested. It type-checks, lints, and tests
+the app before compiling iOS. It then verifies that the JavaScript bundle and
+`ExpoWidgetsTarget.appex` are present in the final IPA. GitHub Actions availability
+and any usage charges depend on the repository and account plan. Download the IPA
+before the selected retention period ends.
 
 ## Widgets and signing
 

@@ -1,10 +1,24 @@
-name: Build Sideloadly IPA
+name: Build iPhone IPA (Sideloadly)
 
 on:
   workflow_dispatch:
+    inputs:
+      artifact_retention_days:
+        description: Days to keep the downloadable IPA
+        required: false
+        default: '14'
+        type: choice
+        options:
+          - '7'
+          - '14'
+          - '30'
 
 permissions:
   contents: read
+
+concurrency:
+  group: iphone-ipa-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -27,6 +41,42 @@ jobs:
 
       - name: Install JavaScript dependencies
         run: npm ci
+
+      - name: Verify application code
+        run: npm run verify
+
+      - name: Verify iOS configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ios/Lifeaholic.xcworkspace/contents.xcworkspacedata
+          test -f ios/Lifeaholic.xcodeproj/xcshareddata/xcschemes/Lifeaholic.xcscheme
+          test -f ios/ExpoWidgetsTarget/LifeaholicTasksWidget.swift
+          test -f ios/ExpoWidgetsTarget/ExpoWidgetsTarget.entitlements
+          test -f ios/Lifeaholic/Lifeaholic.entitlements
+
+          for widget in \
+            LifeaholicDDayWidget \
+            LifeaholicTasksWidget \
+            LifeaholicMatrixWidget \
+            LifeaholicWhatsNextWidget \
+            LifeaholicAddExpenseWidget \
+            LifeaholicFocusControllerWidget \
+            LifeaholicFocusAnalyticsWidget; do
+            grep -q "$widget()" ios/ExpoWidgetsTarget/index.swift
+            grep -q "struct $widget: Widget" \
+              ios/ExpoWidgetsTarget/LifeaholicTasksWidget.swift
+          done
+
+          # A web base path changes Metro's native asset destinations and can
+          # collide with the Lifeaholic executable inside Lifeaholic.app.
+          node - <<'NODE'
+          const config = require('./app.config.js');
+          const baseUrl = config?.expo?.experiments?.baseUrl;
+          if (baseUrl) {
+            throw new Error(`iOS builds must not define experiments.baseUrl (received ${baseUrl})`);
+          }
+          NODE
 
       - name: Install CocoaPods dependencies
         working-directory: ios
@@ -56,14 +106,26 @@ jobs:
             ENABLE_DEBUG_DYLIB=NO \
             build 2>&1 | tee "$RUNNER_TEMP/ios-logs/xcodebuild.log"
 
+      - name: Validate app and widget products
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/LifeaholicDerivedData/Build/Products/Release-iphoneos/Lifeaholic.app"
+          widget="$app/PlugIns/ExpoWidgetsTarget.appex"
+
+          test -d "$app"
+          test -x "$app/Lifeaholic"
+          test -s "$app/main.jsbundle"
+          test -d "$widget"
+          test -x "$widget/ExpoWidgetsTarget"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$widget/Info.plist"
+
       - name: Package IPA for Sideloadly
         shell: bash
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/LifeaholicDerivedData/Build/Products/Release-iphoneos/Lifeaholic.app"
-          test -d "$app"
-          test -s "$app/main.jsbundle"
-          test -d "$app/PlugIns/ExpoWidgetsTarget.appex"
           mkdir -p "$RUNNER_TEMP/ipa/Payload" "$GITHUB_WORKSPACE/artifacts"
           ditto "$app" "$RUNNER_TEMP/ipa/Payload/Lifeaholic.app"
           app="$RUNNER_TEMP/ipa/Payload/Lifeaholic.app"
@@ -82,17 +144,36 @@ jobs:
           codesign --force --sign - --timestamp=none \
             --entitlements ios/Lifeaholic/Lifeaholic.entitlements "$app"
           codesign --verify --deep --strict "$app"
+          codesign -d --entitlements :- "$app" 2>&1 \
+            | grep -q 'group.com.example.lifeaholic'
+          codesign -d --entitlements :- \
+            "$app/PlugIns/ExpoWidgetsTarget.appex" 2>&1 \
+            | grep -q 'group.com.example.lifeaholic'
           cd "$RUNNER_TEMP/ipa"
           /usr/bin/zip -qry "$GITHUB_WORKSPACE/artifacts/Lifeaholic-sideloadly.ipa" Payload
           /usr/bin/unzip -tq "$GITHUB_WORKSPACE/artifacts/Lifeaholic-sideloadly.ipa"
+
+          # Confirm the final archive still contains the app, JavaScript bundle,
+          # and widget extension after signing and packaging.
+          archive_listing="$(/usr/bin/unzip -Z1 \
+            "$GITHUB_WORKSPACE/artifacts/Lifeaholic-sideloadly.ipa")"
+          grep -qx 'Payload/Lifeaholic.app/main.jsbundle' <<<"$archive_listing"
+          grep -qx \
+            'Payload/Lifeaholic.app/PlugIns/ExpoWidgetsTarget.appex/ExpoWidgetsTarget' \
+            <<<"$archive_listing"
+
+          shasum -a 256 "$GITHUB_WORKSPACE/artifacts/Lifeaholic-sideloadly.ipa" \
+            > "$GITHUB_WORKSPACE/artifacts/Lifeaholic-sideloadly.ipa.sha256"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: Lifeaholic-sideloadly
-          path: artifacts/Lifeaholic-sideloadly.ipa
+          path: |
+            artifacts/Lifeaholic-sideloadly.ipa
+            artifacts/Lifeaholic-sideloadly.ipa.sha256
           if-no-files-found: error
-          retention-days: 7
+          retention-days: ${{ inputs.artifact_retention_days }}
 
       - name: Upload resolved native dependency lock
         uses: actions/upload-artifact@v4
@@ -100,7 +181,7 @@ jobs:
           name: ios-podfile-lock
           path: ios/Podfile.lock
           if-no-files-found: error
-          retention-days: 7
+          retention-days: ${{ inputs.artifact_retention_days }}
 
       - name: Upload build log
         if: failure()
@@ -109,4 +190,4 @@ jobs:
           name: ios-build-log
           path: ${{ runner.temp }}/ios-logs
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: ${{ inputs.artifact_retention_days }}
