@@ -119,12 +119,15 @@ jobs:
           grep -Fq 'group.com.example.lifeaholic' \
             ios/ExpoWidgetsTarget/ExpoWidgetsTarget.entitlements
 
-      - name: Install locked CocoaPods dependencies
+      - name: Resolve and install CocoaPods dependencies
         working-directory: ios
         run: |
           set -euo pipefail
           pod --version
-          pod install --deployment 2>&1 | tee "$RUNNER_TEMP/ios-logs/pods.log"
+          # Expo module podspecs are generated from the npm install and can
+          # legitimately differ from the committed native lock snapshot.
+          # Resolve them without refreshing the remote specs repository.
+          pod update --no-repo-update 2>&1 | tee "$RUNNER_TEMP/ios-logs/pods.log"
 
       - name: Inspect Xcode workspace
         run: |
