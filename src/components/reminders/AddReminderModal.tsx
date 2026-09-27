@@ -84,7 +84,7 @@ export function AddReminderModal({ visible, saving, onClose, onSave }: {
   };
 
   return <AppModal visible={visible} onClose={() => { if (!saving) onClose(); }} sheetStyle={styles.sheet}>
-    <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
       <View>
         <Text style={[styles.eyebrow, { color: colors.accent }]}>NEW REMINDER</Text>
         <Text style={[styles.title, { color: colors.text }]}>What should we remember?</Text>
@@ -144,5 +144,5 @@ export function AddReminderModal({ visible, saving, onClose, onSave }: {
 }
 
 const styles = StyleSheet.create({
-  sheet: { maxHeight: '94%' }, content: { gap: 16, paddingBottom: 8 }, eyebrow: { fontSize: 10, fontWeight: '900', letterSpacing: 1.2 }, title: { marginTop: 3, fontSize: 24, fontWeight: '900' }, label: { fontSize: 10, fontWeight: '900', letterSpacing: 1 }, dateTimeRow: { flexDirection: 'row', gap: 9 }, dateTimeCard: { flex: 1, minHeight: 70, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 9 }, dateTimeCopy: { flex: 1 }, dateTimeLabel: { fontSize: 10, fontWeight: '700' }, dateTimeValue: { marginTop: 3, fontSize: 12, fontWeight: '800' }, picker: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, overflow: 'hidden', padding: 6 }, alertSection: { gap: 9 }, hint: { minHeight: 30, fontSize: 11, lineHeight: 15 }, error: { fontSize: 12, fontWeight: '700' }, actions: { flexDirection: 'row', gap: 9 }, action: { flex: 0.75 }, actionWide: { flex: 1.25 },
+  sheet: { maxHeight: '94%' }, scroll: { flexShrink: 1 }, content: { flexGrow: 1, gap: 16, paddingBottom: 8 }, eyebrow: { fontSize: 10, fontWeight: '900', letterSpacing: 1.2 }, title: { marginTop: 3, fontSize: 24, fontWeight: '900' }, label: { fontSize: 10, fontWeight: '900', letterSpacing: 1 }, dateTimeRow: { flexDirection: 'row', gap: 9 }, dateTimeCard: { flex: 1, minHeight: 70, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 9 }, dateTimeCopy: { flex: 1 }, dateTimeLabel: { fontSize: 10, fontWeight: '700' }, dateTimeValue: { marginTop: 3, fontSize: 12, fontWeight: '800' }, picker: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, overflow: 'hidden', padding: 6 }, alertSection: { gap: 9 }, hint: { minHeight: 30, fontSize: 11, lineHeight: 15 }, error: { fontSize: 12, fontWeight: '700' }, actions: { flexDirection: 'row', gap: 9 }, action: { flex: 0.75 }, actionWide: { flex: 1.25 },
 });
