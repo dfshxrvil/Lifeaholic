@@ -1,6 +1,9 @@
 name: Build installable Android APK
 
 on:
+  push:
+    branches:
+      - fix/github-pages-oauth-redirect
   workflow_dispatch:
     inputs:
       artifact_retention_days:
