@@ -1,15 +1,16 @@
 # Lifeaholic — complete AI engineering reference
 
-Last source audit: 16 September 2026. This document describes the checked-in repository as it exists now. It is intended to be pasted into, or linked from, future AI prompts before asking for a feature or refactor.
+Last source audit: 25 September 2026. This document describes the current working repository, including the standalone reminder subsystem. It is intended to be pasted into, or linked from, future AI prompts before asking for a feature or refactor.
 
 ## 1. Product summary
 
 Lifeaholic is a portrait-first personal productivity application for iOS, Android, and web. It combines:
 
 - Supabase email/password authentication and per-user data isolation.
-- Daily tasks, subtasks, priority management, rollover, completion feedback, and an Eisenhower matrix.
+- Daily tasks with optional times/local reminders, editable dates, subtasks, priority management, rollover, completion feedback, and an Eisenhower matrix.
 - Focus subjects, live focus/break timers, daily history, and analytics.
 - Google Calendar events plus recurring habits that can sync to Google Calendar or the device calendar.
+- Supabase-synchronized reminders with device-local notification scheduling, plus device-local alarms.
 - Personal and shared/group expense tracking using an integer-paise double-entry-style participant ledger.
 - Rich notes, folders, checklists, attachments, trash, and a PIN-gate data model.
 - Journal entries with prompts, mood, location text, images/video, voice memo, bookmarks, and multiple entries per day.
@@ -26,6 +27,7 @@ The client is Expo Router + React Native. Ordinary app data is stored in Supabas
 - Supabase JS for Auth, PostgREST/RPC calls, and Storage.
 - Reanimated and Gesture Handler for interaction and motion.
 - Expo Blur, Haptics, Audio, Image Picker, Calendar, Secure Store, Asset, Splash Screen, and Widgets.
+- Expo Notifications for one-time task/reminder/alarm delivery and Android notification channels.
 - Native rich text uses `react-native-pell-rich-editor`/WebView; web uses a `contentEditable` implementation.
 - Web matrix drag-and-drop uses dnd-kit. Native matrix dragging uses React Native gesture/animation primitives.
 - Web focus charts use Recharts; native focus analytics intentionally renders a reduced summary.
@@ -110,6 +112,10 @@ The UI uses blurred/glass cards, rounded sheets, animated presses, staggered lis
 | `/settings` | `app/settings.tsx` | Theme, two D-Day records, profile preference save, sign-out. |
 | `/notes/new` | `app/notes/new.tsx` | Full-page new-note editor; accepts optional `folderId`. |
 | `/focus-analytics` | `app/focus-analytics.tsx` | Loads six months of real focus sessions and renders platform analytics. |
+| `/reminders` | `app/reminders.tsx` | Supabase-backed reminder hub grouped into Overdue, Today, Tomorrow, and Later. |
+| `/alarms` | `app/alarms.tsx` | Account-scoped alarm list/editor using alarm-style delivery. |
+
+The root native stack enables edge and full-screen back gestures. Custom back controls use `useSafeBack`: they pop when navigation history exists and replace the current route with `/(tabs)/home` after a direct link or browser reload leaves no history. The tab layout remains a `Tabs` navigator; stack gesture options belong on the root `Stack`, not on `Tabs`.
 
 The floating tab bar always contains six tabs in this order: Matrix, Focus, Home, Calendar, Finance, Notes. It is a blurred floating bar that accounts for safe-area insets. Feature FABs use its exported bottom metrics so controls do not overlap it.
 
@@ -140,8 +146,9 @@ Active task rows provide:
 - Title tap/in-place rename.
 - Row open to view/add/toggle subtasks.
 - Long press for Edit, Add Subtask, or confirmed Delete.
+- Optional local task time beside the title. Timed tasks sort with upcoming times first, followed by passed times and then All Day tasks.
 
-The same long-press actions exist in Finished tasks. Editing preserves the task date and edits title, description, and priority. Deleting a task also removes it from the undo queue. A refresh button refreshes tasks, Google Calendar, and D-Day data together.
+The same long-press actions exist in Finished tasks. Editing can change title, description, priority, date, optional time, and reminder offset. Moving a task to another date removes it optimistically from the current Home date while preserving `original_date`. Reminder choices are None, At time, 15 minutes before, and 1 hour before. Create/update schedules the replacement notification before the database write and cancels it on database failure; completion, deletion, and rescheduling cancel the prior identifier. Deleting a task also removes it from the undo queue. A refresh button refreshes tasks, Google Calendar, and D-Day data together.
 
 Task priorities are:
 
@@ -189,6 +196,7 @@ The global `CalendarProvider` owns connection state, token restoration, event li
 - Event edit/delete actions.
 - A title plus validated start/end `HH:MM` inputs. End must be later than start.
 - Connect, disconnect, restore, loading, error, and manual refresh states.
+- Adjacent Reminders and Alarms shortcuts that open dedicated management screens.
 
 Google event operations target the primary calendar with `calendar.events` scope. Events are normalized to local `Date` objects; fetch uses a bounded date range, single events, start ordering, and up to 250 results. Habit-created events use a private `lifeaholicHabitId` extended property so they can be found and replaced/deleted.
 
@@ -199,6 +207,14 @@ OAuth behavior differs by platform:
 - Web: implicit token response and memory-only session; reload loses the connection by design.
 
 Refreshes are generation-guarded so stale requests cannot overwrite a disconnect/account change. Concurrent token renewals share one promise. Rotated refresh tokens are persisted; omitted refresh tokens retain the prior token. Revoked grants clear the session; network errors keep credentials for retry.
+
+### Reminders and alarms
+
+Reminders use the standalone Supabase `reminders` table and are independent of tasks and calendar events. The screen loads incomplete rows for the signed-in user, sorts chronologically, and groups them into Overdue, Today, Tomorrow, and Later. Creation is optimistic: a temporary row appears immediately, the native notification is scheduled, and the returned notification identifier is stored with the database row. Failed inserts cancel the notification and roll back the temporary row. Completion and deletion remove the row optimistically, persist to Supabase, and cancel the associated notification. Long-pressing a row or using its trash button opens delete confirmation.
+
+Reminder alert types are Silent, Notification (`standard` in storage), and Alarm. Android channels are `reminder-silent` (minimum importance/no sound or vibration), `reminder-standard` (default importance and sound), and `reminder-alarm` (maximum importance, alarm audio usage, DND bypass request, and strong vibration). iOS maps these to passive, active, and critical-if-authorized/time-sensitive interruption levels. Reminder rows synchronize through Supabase, but the notification is scheduled only on the device/browser that creates the reminder. Web uses the browser Notification API, stores pending schedules in localStorage, and re-arms future timers after reload. Web alarm mode adds a synthesized Web Audio tone.
+
+Alarms remain installation-local in AsyncStorage under `lifeaholic.scheduled-alerts.v1:<userId>`, use the existing scheduled-alert editor, and support create, edit, delete, and enable/disable. Signing out cancels these local alarms and marks them disabled. Alarm-style reminders and alarms are not custom full-screen clock alarms; device mute, Focus/DND, notification permission, battery policy, browser autoplay policy, and platform rules can still affect presentation.
 
 ### Habits
 
@@ -274,7 +290,7 @@ Home and widget snapshot currently use only slot 1. Settings is the only UI for 
 The shared snapshot contract is `LifeaholicWidgetSnapshot` version 1:
 
 - `updatedAt`
-- up to 32 tasks: id, title, priority, completion
+- up to 64 tasks: id, title, priority, completion
 - optional slot-1 D-Day: title, date, days remaining
 - up to 16 today's Google events: id, title, start/end Unix seconds
 - up to 12 focus subjects with today's seconds
@@ -288,7 +304,7 @@ The shared snapshot contract is `LifeaholicWidgetSnapshot` version 1:
 | --- | --- | --- | --- |
 | D-Day | Small | Dedicated D-Day layout | Slot-1 day count/title; opens Home D-Day editor. |
 | Tasks | Medium, Large | Shows up to 7 tasks | iOS shows 4/8 numbered rows and opens task/Home. Android checkbox completes locally then queues Supabase sync. |
-| Matrix | Large, Extra Large | Four quadrants | Groups unfinished tasks by priority; task opens its quadrant. Android rows have completion actions. |
+| Matrix | Large, Extra Large | Four quadrants | Groups unfinished tasks by priority and displays up to seven compact rows per quadrant; task opens its quadrant. Android rows have completion actions. |
 | What's Next | Small, Medium | Next-event layout | Closest future event from today's snapshot; opens Calendar. |
 | Add Expense | Small, Medium | Add-expense launcher | Static shortcut to Finance expense composer. |
 | Focus Controller | Large | Status plus up to 5 subjects | iOS can start, pause, resume, end, enter break, and end break with App Intents. Android currently deep-links a subject into the Focus screen rather than controlling timer state in-place. |
@@ -304,8 +320,9 @@ Android uses private `SharedPreferences` JSON, seven `AppWidgetProvider` classes
 
 ### Core tables
 
+- `reminders`: owner, title, target date/time, silent/standard/alarm alert type, completion state, local notification identifier, and creation time.
 - `profiles`: user id, username/email, legacy D-Day fields, theme JSON, created time.
-- `tasks`: owner, title/description, current date, original date, completion/completed time, priority, created time.
+- `tasks`: owner, title/description, current date, original date, optional local task time, optional reminder offset/notification identifier, completion/completed time, priority, created time.
 - `subtasks`: parent task, title, completion, created time.
 - `focus_subjects`, `focus_sessions`, `focus_breaks`.
 - `note_folders`, `notes`, `journal_entries`.
@@ -337,6 +354,8 @@ Finance invariants and all writes live behind SQL functions/RPCs. The public cli
 8. `011_add_finance_categories.sql`: Laundry, Drinks, Grocery.
 9. `012_finance_rpc_contract_hardening.sql`: camel-case/string-money contract, correct limit+1 pagination, grants/cache reload.
 10. `013_finance_transaction_timestamp.sql`: optional timestamptz and create/edit contract updates.
+11. `014_task_time_and_reminders.sql`: optional task time, reminder offset, notification identifier, constraints, and timed-task index.
+12. `015_standalone_reminders.sql`: standalone reminder table, chronological partial index, RLS, and owner-only CRUD policies.
 
 Do not blindly re-run all migrations on a live project. Migration 009 intentionally drops the retired finance system, and not every older policy statement is idempotent.
 
@@ -347,8 +366,9 @@ Do not blindly re-run all migrations on a live project. Migration 009 intentiona
 - `app.json`: Expo identity, assets, permissions/plugins, native IDs, widget extension configuration.
 - `package.json` / lock: scripts and exact dependency graph.
 - `tsconfig.json`, `babel.config.js`, `metro.config.js`, `tailwind.config.js`, `postcss.config.js`, `global.css`, `eslint.config.js`: compilation, alias `@/* -> src/*`, web styling, linting, and OneDrive compatibility.
-- `app/_layout.tsx`: provider tree, splash, navigation, Android headless registration.
+- `app/_layout.tsx`: provider tree, splash, root stack gestures, navigation, Android headless registration. `src/utils/navigation.ts` provides history-aware `useSafeBack` fallback navigation.
 - `app/index.tsx`, `login.tsx`, `settings.tsx`, `focus-analytics.tsx`, `notes/new.tsx`: non-tab routes described above.
+- `app/reminders.tsx`: thin route for the Supabase-backed reminder hub. `app/alarms.tsx`: thin route for the local alarm screen.
 - `app/(tabs)/_layout.tsx`: auth guard and six-tab order.
 - `app/(tabs)/home.tsx`, `matrix.tsx`, `focus.tsx`, `calendar.tsx`: primary feature screens.
 - `app/(tabs)/finance.tsx`, `notes.tsx`: one-line exports of `src/screens` implementations.
@@ -357,11 +377,13 @@ Do not blindly re-run all migrations on a live project. Migration 009 intentiona
 
 - `src/screens/FinanceScreen.tsx`: finance list/orchestration.
 - `src/screens/NotesJournalScreen.tsx`: combined Notes/Journal orchestration.
+- `src/screens/RemindersScreen.tsx`: grouped reminder hub, completion, deletion, refresh, loading/error/empty states. `src/screens/ScheduledAlertsScreen.tsx`: local alarm list/editor and enable/delete controls.
+- `components/reminders/AddReminderModal.tsx`, `ReminderDateTimePicker.tsx`, `.web.tsx`: reminder creation sheet, alert selector, and platform date/time input.
 - `components/auth/AuthForm.tsx`: login/signup state and validation.
 - `components/branding/LaunchSplash.tsx`: custom animated launch overlay.
 - `components/navigation/FloatingTabBar.tsx`, `DeepLinkRouter.tsx`: tab UI/metrics and URL dispatch.
 - `components/home/WhatsNext.tsx`, `DDayWidget.tsx`: Home event/D-Day cards.
-- `components/tasks/AddTaskModal.tsx`, `SubtaskModal.tsx`, `CompactTaskRow.tsx`, `TaskCard.tsx`, `DateSelector.tsx`, `DateTag.tsx`, `UndoToast.tsx`: all task UI. `TaskCard` is an alias of `CompactTaskRow`; `DateSelector` is an alias of `CalendarBar`.
+- `components/tasks/AddTaskModal.tsx`, `TaskDateTimePicker.tsx`, `.web.tsx`, `SubtaskModal.tsx`, `CompactTaskRow.tsx`, `TaskCard.tsx`, `DateSelector.tsx`, `DateTag.tsx`, `UndoToast.tsx`: task editor/time/reminder and list UI. `TaskCard` is an alias of `CompactTaskRow`; `DateSelector` is an alias of `CalendarBar`.
 - `components/matrix/MatrixBoard.native.tsx`, `.web.tsx`, `.d.ts`: platform drag boards and declaration.
 - `components/calendar/CalendarGrid.tsx`, `UpcomingEventCard.tsx`: month grid and reusable upcoming-event card. Home currently uses `WhatsNext`, not `UpcomingEventCard`.
 - `components/habits/HabitFormModal.tsx`, `HabitRow.tsx`: habit form/list row.
@@ -376,13 +398,14 @@ Do not blindly re-run all migrations on a live project. Migration 009 intentiona
 ### Contexts, hooks, services, domain
 
 - `contexts/AuthContext.tsx`, `CalendarContext.tsx`, `ThemeContext.tsx`, `SpatialModalContext.tsx`: global state described above.
-- `hooks/useTasks.ts`, `useHabits.ts`, `useNotes.ts`, `useJournal.ts`: feature data adapters.
+- `hooks/useTasks.ts`, `useHabits.ts`, `useNotes.ts`, `useJournal.ts`, `useReminders.ts`: feature data adapters; reminders include optimistic add/complete/delete behavior and chronological grouping.
 - `hooks/useCompletionFeedback.ts`: checkmark haptic plus generated `chime.wav` playback.
 - `hooks/useScrollBoundaryHaptics.ts`: top-edge/pull refresh haptic behavior.
 - `hooks/finance/useFinance.ts`: account-safe queries, pagination, refresh subscriptions, and idempotent mutations.
 - `hooks/finance/useFinanceAnalytics.ts`: full-page month loading and pure analytics composition.
 - `services/supabase.ts`, `profile.ts`, `tasks.ts`, `focus.ts`, `habits.ts`, `notes.ts`, `journal.ts`, `dDayEvents.ts`: direct core persistence.
 - `services/googleCalendar.ts`, `googleCalendarAuth.ts`, `.android.ts`, `calendarSession.ts`, `googleCalendarSession.ts`, `deviceCalendar.ts`: calendar API, OAuth, secure session lifecycle, and device recurrence.
+- `services/notifications.ts` and `.web.ts`, `services/reminders.ts`, `hooks/useReminders.ts`: native notification channels plus browser Notification/Web Audio timers, permission, scheduling/cancellation, and Supabase reminder CRUD/state. `services/tasks.ts` owns task notification replacement/cancellation around database writes. `services/scheduledAlerts.ts` and `types/scheduledAlert.ts` own installation-local alarms while delegating delivery to the platform notification service. `utils/scheduledAlertDate.ts` strictly parses local date/time; `utils/reminderGrouping.ts` groups reminders; `utils/taskScheduling.ts` calculates task triggers and intelligent time ordering.
 - `services/taskEvents.ts`, `habitEvents.ts`, `widgetDataEvents.ts`, `finance/financeEvents.ts`: in-memory change notifications.
 - `services/widgetSuite.ts`, `.ios.ts`, `.android.ts`, `widgetReload.ts`: no-op web/default bridge and native storage/reload implementations.
 - `repositories/financeRepository.ts`: only finance persistence boundary and response validator.
@@ -408,6 +431,7 @@ Do not blindly re-run all migrations on a live project. Migration 009 intentiona
 ### Tests, scripts, docs, CI, artifacts
 
 - `tests/calendar-session.test.mjs`: restore/expiry/rotation/concurrency/offline/revocation/account/disconnect races.
+- `tests/scheduled-alert-date.test.mjs`: valid local timestamp construction and malformed/impossible date/time rejection. `tests/reminders.test.mjs`: smart grouping/order plus reminder migration constraints/RLS. `tests/task-scheduling.test.mjs`: local task trigger math, intelligent sorting, and migration 014 constraints.
 - `tests/finance-money.test.mjs`, `finance-idempotency.test.mjs`, `finance-analytics.test.mjs`, `finance-repository.test.mjs`, `finance-timestamp.test.mjs`: exact money, ledgers/retries, analytics, RPC validation, migration/timestamp behavior.
 - `scripts/generate-chime.mjs`: generates the completion sound.
 - `scripts/seed-test-data.mjs`: writes test data; it is not read-only and should not be run casually against production.
@@ -418,6 +442,8 @@ Do not blindly re-run all migrations on a live project. Migration 009 intentiona
 ## 9. Known limitations and source truths
 
 - No universal offline-first database layer or Supabase Realtime subscription exists. Most server data requires network; local optimistic state is reconciled by explicit refresh/events.
+- Reminder records synchronize through Supabase, but their notification identifiers refer to one device and are not automatically rescheduled on a second device. Alarms remain installation-local. Both use OS notifications rather than a full-screen alarm process, so device policy can silence or delay them.
+- Browser reminders and alarms require notification permission and an open Lifeaholic page. Timers are restored after reload, but browsers do not guarantee this in-page fallback will fire after the tab/browser is closed; audible alarms can also be limited by autoplay policy.
 - Native active focus is widget-snapshot based, not a server-owned timer. Web has no widget snapshot persistence.
 - iOS task completion App Intent exists but is not wired into the visible task/matrix Swift views.
 - Android Focus Controller is a deep-link controller, not equivalent to the interactive iOS App Intent controller.

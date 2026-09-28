@@ -1,0 +1,165 @@
+name: Build installable Android APK
+
+on:
+  push:
+    branches:
+      - fix/github-pages-oauth-redirect
+  workflow_dispatch:
+    inputs:
+      artifact_retention_days:
+        description: Days to keep the downloadable APK
+        required: false
+        default: '14'
+        type: choice
+        options:
+          - '7'
+          - '14'
+          - '30'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-apk:
+    name: Build app and widgets
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID: ${{ vars.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID }}
+      EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Require production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            EXPO_PUBLIC_SUPABASE_URL
+            EXPO_PUBLIC_SUPABASE_ANON_KEY
+            EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID
+            EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
+          )
+
+          for variable in "${required[@]}"; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::Missing repository secret: $variable"
+              exit 1
+            fi
+          done
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Type-check, lint, and test
+        run: npm run verify
+
+      - name: Validate Android widgets
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=android/app/src/main/AndroidManifest.xml
+          providers=(
+            TasksWidgetProvider
+            MatrixWidgetProvider
+            DDayWidgetProvider
+            WhatsNextWidgetProvider
+            AddExpenseWidgetProvider
+            FocusControllerWidgetProvider
+            FocusAnalyticsWidgetProvider
+          )
+
+          for provider in "${providers[@]}"; do
+            grep -Fq ".widgets.$provider" "$manifest"
+            grep -Fq "class $provider" \
+              android/app/src/main/java/com/example/lifeaholic/widgets/LifeaholicWidgetProviders.kt
+          done
+
+          grep -Fq 'add(AndroidWidgetPackage())' \
+            android/app/src/main/java/com/example/lifeaholic/MainApplication.kt
+
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      - name: Verify and package APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_apk=android/app/build/outputs/apk/release/app-release.apk
+          output_dir=artifacts/android-${GITHUB_RUN_ID}
+          output_apk="$output_dir/Lifeaholic-1.1.1-android.apk"
+          mkdir -p "$output_dir"
+          test -s "$source_apk"
+          cp "$source_apk" "$output_apk"
+
+          aapt_path="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
+          test -x "$aapt_path"
+          badging="$($aapt_path dump badging "$output_apk")"
+          grep -Fq "package: name='com.example.lifeaholic' versionCode='4' versionName='1.1.1'" <<<"$badging"
+
+          manifest_tree="$($aapt_path dump xmltree "$output_apk" AndroidManifest.xml)"
+          providers=(
+            TasksWidgetProvider
+            MatrixWidgetProvider
+            DDayWidgetProvider
+            WhatsNextWidgetProvider
+            AddExpenseWidgetProvider
+            FocusControllerWidgetProvider
+            FocusAnalyticsWidgetProvider
+          )
+          for provider in "${providers[@]}"; do
+            grep -Fq "com.example.lifeaholic.widgets.$provider" <<<"$manifest_tree"
+          done
+
+          sha256sum "$output_apk" > "$output_apk.sha256"
+          {
+            printf 'Lifeaholic 1.1.1 (4)\n'
+            printf 'Package: com.example.lifeaholic\n'
+            printf 'Commit: %s\n' "$GITHUB_SHA"
+            printf 'Widgets: 7\n'
+            printf 'Signing: Android debug key (sideloadable release build)\n'
+          } > "$output_dir/build-info.txt"
+
+          {
+            echo '### Android APK created'
+            echo
+            echo '- App version: 1.1.1 (4)'
+            echo '- Application features and production JavaScript bundle: included'
+            echo '- Native Android widgets validated: 7'
+            echo '- APK package metadata: passed'
+            echo
+            echo 'Download the **Lifeaholic-Android-APK** artifact and install the APK on Android.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lifeaholic-Android-APK
+          path: artifacts/android-${{ github.run_id }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: ${{ inputs.artifact_retention_days }}

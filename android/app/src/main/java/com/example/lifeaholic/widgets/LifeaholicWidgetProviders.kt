@@ -89,7 +89,7 @@ object LifeaholicWidgetRenderer {
     )
     containers.values.forEach(views::removeAllViews)
     containers.forEach { (priority, container) ->
-      visibleTasks(snapshot).filter { it.optString("priority") == priority }.take(3).forEach { task ->
+      visibleTasks(snapshot).filter { it.optString("priority") == priority }.take(7).forEach { task ->
         views.addView(container, taskRow(context, task, true, "matrix"))
       }
     }

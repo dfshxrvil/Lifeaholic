@@ -1,15 +1,33 @@
-name: Build Sideloadly IPA
+name: Build installable iPhone IPA
 
 on:
   workflow_dispatch:
+    inputs:
+      artifact_retention_days:
+        description: Days to keep the downloadable IPA
+        required: false
+        default: '14'
+        type: choice
+        options:
+          - '7'
+          - '14'
+          - '30'
 
 permissions:
   contents: read
 
+concurrency:
+  group: iphone-ipa-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build:
+  build-ipa:
+    name: Build app and widgets
     runs-on: macos-26
     timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
     env:
       CI: '1'
       EXPO_NO_TELEMETRY: '1'
@@ -17,32 +35,112 @@ jobs:
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
       EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID }}
       EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID }}
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
 
+      - name: Prepare build directories
+        run: mkdir -p "$RUNNER_TEMP/ios-logs" "$GITHUB_WORKSPACE/artifacts"
+
+      - name: Require production configuration
+        run: |
+          set -euo pipefail
+          required=(
+            EXPO_PUBLIC_SUPABASE_URL
+            EXPO_PUBLIC_SUPABASE_ANON_KEY
+            EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
+            EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
+          )
+
+          for variable in "${required[@]}"; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::Missing repository secret: $variable"
+              exit 1
+            fi
+          done
+
       - name: Install JavaScript dependencies
         run: npm ci
 
-      - name: Install CocoaPods dependencies
-        working-directory: ios
-        shell: bash
+      - name: Type-check, lint, and test
+        run: npm run verify
+
+      - name: Validate Expo and native configuration
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/ios-logs"
-          # The committed Podfile.lock predates the npm dependency update.
+
+          test -f ios/Lifeaholic.xcworkspace/contents.xcworkspacedata
+          test -f ios/Lifeaholic.xcodeproj/xcshareddata/xcschemes/Lifeaholic.xcscheme
+          test -f ios/Lifeaholic/Lifeaholic.entitlements
+          test -f ios/ExpoWidgetsTarget/ExpoWidgetsTarget.entitlements
+          test -f ios/ExpoWidgetsTarget/Info.plist
+          test -f ios/ExpoWidgetsTarget/index.swift
+          test -f ios/ExpoWidgetsTarget/LifeaholicTasksWidget.swift
+
+          plutil -lint ios/Lifeaholic/Lifeaholic.entitlements
+          plutil -lint ios/ExpoWidgetsTarget/ExpoWidgetsTarget.entitlements
+          plutil -lint ios/ExpoWidgetsTarget/Info.plist
+
+          # A web base path makes Metro copy native assets underneath
+          # Lifeaholic.app/Lifeaholic, which is the executable, not a directory.
+          node - <<'NODE'
+          const config = require('./app.config.js');
+          const baseUrl = config?.expo?.experiments?.baseUrl;
+          if (baseUrl) {
+            throw new Error(`Native iOS builds cannot define experiments.baseUrl (received ${baseUrl})`);
+          }
+          NODE
+
+          widgets=(
+            LifeaholicDDayWidget
+            LifeaholicTasksWidget
+            LifeaholicMatrixWidget
+            LifeaholicWhatsNextWidget
+            LifeaholicAddExpenseWidget
+            LifeaholicFocusControllerWidget
+            LifeaholicFocusAnalyticsWidget
+          )
+
+          for widget in "${widgets[@]}"; do
+            grep -Fq "$widget()" ios/ExpoWidgetsTarget/index.swift
+            grep -Fq "struct $widget: Widget" ios/ExpoWidgetsTarget/LifeaholicTasksWidget.swift
+          done
+
+          grep -Fq 'ExpoWidgetsTarget.appex in Embed Foundation Extensions' \
+            ios/Lifeaholic.xcodeproj/project.pbxproj
+          grep -Fq 'group.com.example.lifeaholic' ios/Lifeaholic/Lifeaholic.entitlements
+          grep -Fq 'group.com.example.lifeaholic' \
+            ios/ExpoWidgetsTarget/ExpoWidgetsTarget.entitlements
+
+      - name: Resolve and install CocoaPods dependencies
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          pod --version
+          # Expo module podspecs are generated from the npm install and can
+          # legitimately differ from the committed native lock snapshot.
+          # Resolve them without refreshing the remote specs repository.
           pod update --no-repo-update 2>&1 | tee "$RUNNER_TEMP/ios-logs/pods.log"
 
-      - name: Build iPhone release without Apple signing credentials
-        shell: bash
+      - name: Inspect Xcode workspace
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/ios-logs"
           xcodebuild -version
+          xcodebuild \
+            -workspace ios/Lifeaholic.xcworkspace \
+            -scheme Lifeaholic \
+            -list 2>&1 | tee "$RUNNER_TEMP/ios-logs/xcode-workspace.log"
+
+      - name: Build iPhone release
+        run: |
+          set -euo pipefail
           xcodebuild \
             -workspace ios/Lifeaholic.xcworkspace \
             -scheme Lifeaholic \
@@ -54,59 +152,115 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY= \
             ENABLE_DEBUG_DYLIB=NO \
-            build 2>&1 | tee "$RUNNER_TEMP/ios-logs/xcodebuild.log"
+            clean build 2>&1 | tee "$RUNNER_TEMP/ios-logs/xcodebuild.log"
 
-      - name: Package IPA for Sideloadly
-        shell: bash
+      - name: Validate compiled app and widgets
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/LifeaholicDerivedData/Build/Products/Release-iphoneos/Lifeaholic.app"
-          test -d "$app"
-          test -s "$app/main.jsbundle"
-          test -d "$app/PlugIns/ExpoWidgetsTarget.appex"
-          mkdir -p "$RUNNER_TEMP/ipa/Payload" "$GITHUB_WORKSPACE/artifacts"
-          ditto "$app" "$RUNNER_TEMP/ipa/Payload/Lifeaholic.app"
-          app="$RUNNER_TEMP/ipa/Payload/Lifeaholic.app"
+          widget="$app/PlugIns/ExpoWidgetsTarget.appex"
 
-          # Temporary local signatures let re-signing tools inspect the bundles.
-          # Sideloadly replaces these with signatures for the user's Apple ID.
+          test -d "$app"
+          test -x "$app/Lifeaholic"
+          test -s "$app/main.jsbundle"
+          test -d "$app/assets"
+          test -d "$widget"
+          test -x "$widget/ExpoWidgetsTarget"
+
+          app_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
+          widget_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$widget/Info.plist")"
+          extension_point="$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$widget/Info.plist")"
+
+          test "$app_id" = 'com.example.lifeaholic'
+          test "$widget_id" = 'com.example.lifeaholic.widgets'
+          test "$extension_point" = 'com.apple.widgetkit-extension'
+
+      - name: Package IPA for Sideloadly
+        run: |
+          set -euo pipefail
+          product="$RUNNER_TEMP/LifeaholicDerivedData/Build/Products/Release-iphoneos/Lifeaholic.app"
+          package_root="$(mktemp -d "$RUNNER_TEMP/lifeaholic-ipa.XXXXXX")"
+          mkdir -p "$package_root/Payload"
+          ditto "$product" "$package_root/Payload/Lifeaholic.app"
+          app="$package_root/Payload/Lifeaholic.app"
+          widget="$app/PlugIns/ExpoWidgetsTarget.appex"
+
+          # Give the unsigned build temporary local signatures. Sideloadly
+          # replaces these with signatures and provisioning for the user's ID.
           while IFS= read -r -d '' framework; do
             codesign --force --sign - --timestamp=none "$framework"
           done < <(find "$app" -depth -type d -name '*.framework' -print0)
+
           while IFS= read -r -d '' library; do
             codesign --force --sign - --timestamp=none "$library"
           done < <(find "$app" -type f -name '*.dylib' -print0)
-          codesign --force --sign - --timestamp=none \
+
+          codesign --force --sign - --timestamp=none --generate-entitlement-der \
             --entitlements ios/ExpoWidgetsTarget/ExpoWidgetsTarget.entitlements \
-            "$app/PlugIns/ExpoWidgetsTarget.appex"
-          codesign --force --sign - --timestamp=none \
-            --entitlements ios/Lifeaholic/Lifeaholic.entitlements "$app"
+            "$widget"
+          codesign --force --sign - --timestamp=none --generate-entitlement-der \
+            --entitlements ios/Lifeaholic/Lifeaholic.entitlements \
+            "$app"
+
           codesign --verify --deep --strict "$app"
-          cd "$RUNNER_TEMP/ipa"
-          /usr/bin/zip -qry "$GITHUB_WORKSPACE/artifacts/Lifeaholic-sideloadly.ipa" Payload
-          /usr/bin/unzip -tq "$GITHUB_WORKSPACE/artifacts/Lifeaholic-sideloadly.ipa"
+          codesign -d --entitlements :- "$app" 2>&1 \
+            | grep -Fq 'group.com.example.lifeaholic'
+          codesign -d --entitlements :- "$widget" 2>&1 \
+            | grep -Fq 'group.com.example.lifeaholic'
 
-      - name: Upload IPA
+          ipa="$GITHUB_WORKSPACE/artifacts/Lifeaholic-sideloadly.ipa"
+          cd "$package_root"
+          /usr/bin/zip -qry "$ipa" Payload
+          /usr/bin/unzip -tq "$ipa"
+
+          archive_listing="$(/usr/bin/unzip -Z1 "$ipa")"
+          grep -Fqx 'Payload/Lifeaholic.app/Lifeaholic' <<<"$archive_listing"
+          grep -Fqx 'Payload/Lifeaholic.app/main.jsbundle' <<<"$archive_listing"
+          grep -Fqx \
+            'Payload/Lifeaholic.app/PlugIns/ExpoWidgetsTarget.appex/ExpoWidgetsTarget' \
+            <<<"$archive_listing"
+
+          app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")"
+          build_number="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")"
+          {
+            printf 'Lifeaholic %s (%s)\n' "$app_version" "$build_number"
+            printf 'Commit: %s\n' "$GITHUB_SHA"
+            printf 'Runner: %s\n' "$RUNNER_OS"
+            xcodebuild -version
+          } > "$GITHUB_WORKSPACE/artifacts/build-info.txt"
+
+          shasum -a 256 "$ipa" \
+            > "$GITHUB_WORKSPACE/artifacts/Lifeaholic-sideloadly.ipa.sha256"
+
+          {
+            echo '### iPhone IPA created'
+            echo
+            echo "- App version: $app_version ($build_number)"
+            echo '- Main JavaScript bundle: included'
+            echo '- ExpoWidgetsTarget: included'
+            echo '- Widget count validated: 7'
+            echo '- IPA archive integrity: passed'
+            echo
+            echo 'Download the **Lifeaholic-iPhone-IPA** artifact and install the IPA with Sideloadly.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload installable IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Lifeaholic-sideloadly
-          path: artifacts/Lifeaholic-sideloadly.ipa
+          name: Lifeaholic-iPhone-IPA
+          path: |
+            artifacts/Lifeaholic-sideloadly.ipa
+            artifacts/Lifeaholic-sideloadly.ipa.sha256
+            artifacts/build-info.txt
           if-no-files-found: error
-          retention-days: 7
+          compression-level: 0
+          retention-days: ${{ inputs.artifact_retention_days }}
 
-      - name: Upload resolved native dependency lock
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-podfile-lock
-          path: ios/Podfile.lock
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload build log
+      - name: Upload diagnostic logs after failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-build-log
+          name: Lifeaholic-iOS-build-logs-${{ github.run_number }}
           path: ${{ runner.temp }}/ios-logs
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: ${{ inputs.artifact_retention_days }}

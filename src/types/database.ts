@@ -4,6 +4,7 @@ export type BreakActivity = 'stare_at_wall' | 'sports' | 'socialize' | 'snacks' 
 export type ChecklistItem = { id: string; text: string; isCompleted: boolean };
 export type NoteAttachment = { id: string; kind: 'image' | 'video' | 'audio' | 'file'; url: string; path?: string; name?: string };
 export type JournalLocation = { name: string; latitude?: number; longitude?: number };
+export type ReminderAlertType = 'silent' | 'standard' | 'alarm';
 
 type Table<Row, Insert, Update = Partial<Insert>> = { Row: Row; Insert: Insert; Update: Update; Relationships: [] };
 
@@ -16,9 +17,9 @@ export interface Database {
         { username?: string | null; email?: string | null; d_day_event_title?: string | null; d_day_event_date?: string | null; theme_preference?: Json }
       >;
       tasks: Table<
-        { id: string; user_id: string; title: string; description: string | null; date: string; original_date: string; is_completed: boolean; priority: TaskPriority; completed_at: string | null; created_at: string },
-        { id?: string; user_id: string; title: string; description?: string | null; date: string; original_date?: string; is_completed?: boolean; priority?: TaskPriority; completed_at?: string | null; created_at?: string },
-        { title?: string; description?: string | null; date?: string; original_date?: string; is_completed?: boolean; priority?: TaskPriority; completed_at?: string | null }
+        { id: string; user_id: string; title: string; description: string | null; date: string; original_date: string; task_time: string | null; reminder_offset: number | null; notification_id: string | null; is_completed: boolean; priority: TaskPriority; completed_at: string | null; created_at: string },
+        { id?: string; user_id: string; title: string; description?: string | null; date: string; original_date?: string; task_time?: string | null; reminder_offset?: number | null; notification_id?: string | null; is_completed?: boolean; priority?: TaskPriority; completed_at?: string | null; created_at?: string },
+        { title?: string; description?: string | null; date?: string; original_date?: string; task_time?: string | null; reminder_offset?: number | null; notification_id?: string | null; is_completed?: boolean; priority?: TaskPriority; completed_at?: string | null }
       >;
       subtasks: Table<
         { id: string; task_id: string; title: string; is_completed: boolean; created_at: string },
@@ -66,6 +67,11 @@ export interface Database {
         { id?: string; user_id: string; slot: number; title: string; event_date: string; created_at?: string; updated_at?: string },
         { title?: string; event_date?: string; updated_at?: string }
       >;
+      reminders: Table<
+        { id: string; user_id: string; title: string; target_date: string; target_time: string; alert_type: ReminderAlertType; is_completed: boolean; notification_id: string | null; created_at: string },
+        { id?: string; user_id: string; title: string; target_date: string; target_time: string; alert_type?: ReminderAlertType; is_completed?: boolean; notification_id?: string | null; created_at?: string },
+        { title?: string; target_date?: string; target_time?: string; alert_type?: ReminderAlertType; is_completed?: boolean; notification_id?: string | null }
+      >;
     };
     Views: Record<string, never>;
     Functions: {
@@ -91,3 +97,6 @@ export type HabitInput = { title: string; emoji?: string | null; daysOfWeek: num
 export type HabitLog = Database['public']['Tables']['habit_logs']['Row'];
 export type HabitWithLogs = Habit & { logs: HabitLog[]; streak: number; completedOnSelectedDate: boolean };
 export type DDayEvent = Database['public']['Tables']['d_day_events']['Row'];
+export type Reminder = Database['public']['Tables']['reminders']['Row'];
+export type ReminderInsert = Database['public']['Tables']['reminders']['Insert'];
+export type ReminderUpdate = Database['public']['Tables']['reminders']['Update'];

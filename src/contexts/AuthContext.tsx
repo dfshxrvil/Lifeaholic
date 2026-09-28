@@ -3,6 +3,7 @@ import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useSt
 import { isSupabaseConfigured, supabase } from '@/services/supabase';
 import { googleCalendarSession } from '@/services/googleCalendarSession';
 import { disconnectGoogleCalendarNative } from '@/services/googleCalendarAuth';
+import { disableScheduledAlertsForUser } from '@/services/scheduledAlerts';
 
 type AuthContextValue = {
   session: Session | null;
@@ -40,6 +41,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     loading,
     configured: isSupabaseConfigured,
     signOut: async () => {
+      if (session?.user.id) await disableScheduledAlertsForUser(session.user.id).catch(() => undefined);
       await googleCalendarSession.clear();
       await disconnectGoogleCalendarNative();
       if (isSupabaseConfigured) {

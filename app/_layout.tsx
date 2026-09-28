@@ -15,12 +15,13 @@ import { SpatialAppFrame, SpatialModalProvider } from '@/contexts/SpatialModalCo
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import '../global.css';
 import '@/widgets/androidHeadlessTask';
+import '@/services/notifications';
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 function Navigation() {
   const { colors, theme } = useTheme();
-  return <><StatusBar style={theme === 'light' ? 'dark' : 'light'} /><Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}><Stack.Screen name="settings" options={{ presentation: 'modal' }} /><Stack.Screen name="notes/new" options={{ headerShown: true, title: 'New Note', headerBackTitle: 'Notes', headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.text, headerShadowVisible: false }} /></Stack></>;
+  return <><StatusBar style={theme === 'light' ? 'dark' : 'light'} /><Stack screenOptions={{ headerShown: false, gestureEnabled: true, fullScreenGestureEnabled: true, contentStyle: { backgroundColor: colors.background } }}><Stack.Screen name="settings" options={{ presentation: 'modal' }} /><Stack.Screen name="notes/new" options={{ headerShown: true, title: 'New Note', headerBackTitle: 'Notes', headerStyle: { backgroundColor: colors.background }, headerTintColor: colors.text, headerShadowVisible: false }} /></Stack></>;
 }
 
 export default function RootLayout() {
